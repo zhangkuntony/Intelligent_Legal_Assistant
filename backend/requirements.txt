@@ -1,0 +1,37 @@
+fastapi
+uvicorn
+python-multipart
+
+# 数据库
+sqlalchemy
+alembic
+asyncpg
+psycopg2-binary
+
+# 向量数据库
+pgvector
+
+# AI集成
+openai
+langchain
+langchain-openai
+
+# 文件处理
+PyPDF2
+python-docx
+
+# 认证和安全
+python-jose[cryptography]
+passlib[bcrypt]
+python-decouple
+
+# 工具库
+pydantic
+pydantic-settings
+python-dateutil
+
+# 开发工具
+pytest
+pytest-asyncio
+black
+isort

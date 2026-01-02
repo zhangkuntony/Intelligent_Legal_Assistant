@@ -1,0 +1,102 @@
+version: '3.8'
+
+services:
+  # PostgreSQL数据库服务
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: legal_assistant_db
+    environment:
+      POSTGRES_DB: legal_assistant
+      POSTGRES_USER: legal_assistant
+      POSTGRES_PASSWORD: legal_assistant_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - legal_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U legal_assistant -d legal_assistant"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis缓存服务（可选）
+  redis:
+    image: redis:7-alpine
+    container_name: legal_assistant_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - legal_network
+    command: redis-server --appendonly yes
+
+  # 后端FastAPI服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: legal_assistant_backend
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgresql+asyncpg://legal_assistant:legal_assistant_password@postgres:5432/legal_assistant
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY=your-development-secret-key-change-in-production
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - legal_network
+    restart: unless-stopped
+
+  # 前端Vue应用服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: legal_assistant_frontend
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - legal_network
+    restart: unless-stopped
+
+  # Nginx反向代理（生产环境）
+  nginx:
+    image: nginx:alpine
+    container_name: legal_assistant_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+      - ./frontend/dist:/usr/share/nginx/html
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - legal_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  legal_network:
+    driver: bridge

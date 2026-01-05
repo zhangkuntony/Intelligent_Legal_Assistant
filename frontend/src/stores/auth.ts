@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { authService } from '@/services/auth'
-import type { User, LoginData, RegisterData } from '@/types/auth'
+import { authService } from '../services/auth'
+import type { User, LoginData, RegisterData } from '../types/auth'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
@@ -30,6 +30,7 @@ export const useAuthStore = defineStore('auth', () => {
       const response = await authService.register(registerData)
       return response
     } catch (error) {
+      console.error('Error registering user', error)
       throw error
     }
   }
@@ -48,6 +49,7 @@ export const useAuthStore = defineStore('auth', () => {
         user.value = userInfo
         isAuthenticated.value = true
       } catch (error) {
+        console.error('Error checking auth status', error)
         logout()
       }
     }

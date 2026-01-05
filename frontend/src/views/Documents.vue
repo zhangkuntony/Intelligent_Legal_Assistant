@@ -18,11 +18,18 @@
       <el-input
         v-model="searchKeyword"
         placeholder="搜索文档..."
-        prefix-icon="Search"
-        style="width: 300px;"
+        prefix-icon="Search"        
         @input="handleSearch"
       />
-      <el-select v-model="filterType" placeholder="文档类型" @change="handleFilter">
+      <el-select v-model="filterStatus" placeholder="文档状态" style="width: 400px;" @change="handleFilter">
+        <el-option label="全部状态" value="" />
+        <el-option label="待处理" value="pending" />
+        <el-option label="处理中" value="processing" />
+        <el-option label="已处理" value="processed" />
+        <el-option label="处理失败" value="error" />
+      </el-select>
+
+      <el-select v-model="filterType" placeholder="文档类型" style="width: 400px;" @change="handleFilter">
         <el-option label="全部类型" value="" />
         <el-option label="合同文件" value="contract" />
         <el-option label="法律文书" value="legal" />
@@ -40,29 +47,55 @@
               <el-icon :color="getFileColor(row.type)" style="margin-right: 8px;">
                 <component :is="getFileIcon(row.type)" />
               </el-icon>
-              {{ row.name }}
+              {{ row.filename }}
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="type" label="类型" width="120">
+        <el-table-column prop="file_type" label="类型" width="120">
           <template #default="{ row }">
-            <el-tag :type="getTagType(row.type)">{{ getTypeText(row.type) }}</el-tag>
+            <el-tag :type="getTagType(row.file_type)">{{ getTypeText(row.file_type) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="size" label="大小" width="100" />
-        <el-table-column prop="uploadTime" label="上传时间" width="180" />
-        <el-table-column prop="status" label="状态" width="100">
+        <el-table-column prop="file_size" label="大小" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'processed' ? 'success' : 'warning'">
-              {{ row.status === 'processed' ? '已处理' : '待处理' }}
+            {{ formatFileSize(row.file_size) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_at" label="上传时间" width="180">
+          <template #default="{ row }">
+            {{ formatDateTime(row.created_at) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="status" label="状态" width="120">
+          <template #default="{ row }">
+            <el-tag :type="getStatusTagType(row.status)">
+              {{ getStatusText(row.status) }}
             </el-tag>
+            <div v-if="row.status === 'processing'" class="progress-info">
+              <el-progress 
+                :percentage="calculateProgress(row)" 
+                :show-text="false" 
+                size="small"
+                style="width: 60px; margin-left: 8px;"
+              />
+              <span class="progress-text">{{ row.processed_chunks }}/{{ row.total_chunks }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200">
+        <el-table-column label="操作" width="250">
           <template #default="{ row }">
-            <el-button link type="primary" @click="previewDocument(row)">预览</el-button>
-            <el-button link type="primary" @click="analyzeDocument(row)">分析</el-button>
-            <el-button link type="danger" @click="deleteDocument(row)">删除</el-button>
+            <el-button link type="primary" @click="previewDocument(row)" :disabled="row.status !== 'processed'">
+              预览
+            </el-button>
+            <el-button link type="primary" @click="downloadDocument(row)">
+              下载
+            </el-button>
+            <el-button link type="primary" @click="analyzeDocument(row)" :disabled="row.status !== 'processed'">
+              分析
+            </el-button>
+            <el-button link type="danger" @click="deleteDocument(row)">
+              删除
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -75,17 +108,24 @@
         :page-sizes="[10, 20, 50, 100]"
         :total="total"
         layout="total, sizes, prev, pager, next"
+        @size-change="handleSizeChange"
+        @current-change="handleCurrentChange"
       />
     </div>
 
     <!-- 上传对话框 -->
     <el-dialog v-model="showUploadDialog" title="上传文档" width="500px">
       <el-upload
+        ref="uploadRef"
         drag
-        action="#"
-        :auto-upload="false"
-        :on-change="handleFileChange"
+        :action="uploadAction"
+        :headers="uploadHeaders"
+        :data="uploadData"
+        :on-success="handleUploadSuccess"
+        :on-error="handleUploadError"
+        :before-upload="beforeUpload"
         :file-list="fileList"
+        :auto-upload="false"
         multiple
       >
         <el-icon class="el-icon--upload"><upload-filled /></el-icon>
@@ -101,7 +141,7 @@
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="showUploadDialog = false">取消</el-button>
-          <el-button type="primary" @click="handleUpload" :loading="uploading">
+          <el-button type="primary" @click="submitUpload" :loading="uploading">
             上传
           </el-button>
         </span>
@@ -111,63 +151,43 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Document, Picture, VideoCamera, Folder } from '@element-plus/icons-vue'
+import { Document, Folder } from '@element-plus/icons-vue'
+import { API_CONFIG } from '../config/api'
+import { useAuthStore } from '../stores/auth'
+import { request } from '../services/api'
 
+// 响应式数据
 const loading = ref(false)
 const showUploadDialog = ref(false)
 const uploading = ref(false)
 const fileList = ref<any[]>([])
+const uploadRef = ref()
 
 const searchKeyword = ref('')
 const filterType = ref('')
+const filterStatus = ref('')
 const currentPage = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 
-const documents = ref([
-  {
-    id: 1,
-    name: '劳动合同范本.pdf',
-    type: 'contract',
-    size: '2.3MB',
-    uploadTime: '2024-01-15 14:30',
-    status: 'processed'
-  },
-  {
-    id: 2,
-    name: '房屋租赁协议.docx',
-    type: 'contract',
-    size: '1.8MB',
-    uploadTime: '2024-01-14 10:15',
-    status: 'processed'
-  },
-  {
-    id: 3,
-    name: '知识产权保护说明.txt',
-    type: 'legal',
-    size: '156KB',
-    uploadTime: '2024-01-12 16:45',
-    status: 'pending'
-  },
-  {
-    id: 4,
-    name: '证据材料.zip',
-    type: 'evidence',
-    size: '5.2MB',
-    uploadTime: '2024-01-10 09:20',
-    status: 'processed'
-  }
-])
+const documents = ref<any[]>([])
 
+// 计算属性
 const filteredDocuments = computed(() => {
   let result = documents.value
   
+  // 搜索过滤
   if (searchKeyword.value) {
     result = result.filter(doc => 
-      doc.name.toLowerCase().includes(searchKeyword.value.toLowerCase())
+      doc.filename.toLowerCase().includes(searchKeyword.value.toLowerCase()) || 
+      doc.title?.toLowerCase().includes(searchKeyword.value.toLowerCase())
     )
+  }
+
+  if (filterStatus.value) {
+    result = result.filter(doc => doc.status === filterStatus.value)
   }
   
   if (filterType.value) {
@@ -176,6 +196,16 @@ const filteredDocuments = computed(() => {
   
   return result
 })
+
+// API配置
+const authStore = useAuthStore()
+const uploadAction = computed(() => `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.DOCUMENTS.UPLOAD}`)
+const uploadHeaders = computed(() => ({
+  'Authorization': `Bearer ${authStore.token}`
+}))
+const uploadData = computed(() => ({
+  title: '',        // 可以根据需要添加其他字段
+}))
 
 const getFileIcon = (type: string) => {
   const iconMap: Record<string, any> = {
@@ -216,6 +246,44 @@ const getTypeText = (type: string) => {
   }
   return textMap[type] || '其他'
 }
+const getStatusTagType = (status: string) => {
+  const typeMap: Record<string, string> = {
+    'pending': 'info',
+    'processing': 'warning',
+    'processed': 'success',
+    'error': 'danger'
+  }
+  return typeMap[status] || 'info'
+}
+
+const getStatusText = (status: string) => {
+  const textMap: Record<string, string> = {
+    'pending': '待处理',
+    'processing': '处理中',
+    'processed': '已处理',
+    'error': '处理失败'
+  }
+  return textMap[status] || '未知'
+}
+
+const formatFileSize = (bytes: number) => {
+  if (!bytes || bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+const formatDateTime = (dateString: string) => {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  return date.toLocaleString('zh-CN')
+}
+
+const calculateProgress = (document: any) => {
+  if (!document.total_chunks || document.total_chunks === 0) return 0
+  return Math.round((document.processed_chunks / document.total_chunks) * 100)
+}
 
 const handleSearch = () => {
   currentPage.value = 1
@@ -225,58 +293,158 @@ const handleFilter = () => {
   currentPage.value = 1
 }
 
+// 添加缺失的分页事件处理函数
+const handleSizeChange = (newSize: number) => {
+  pageSize.value = newSize
+  currentPage.value = 1
+  refreshDocuments()
+}
+
+const handleCurrentChange = (newPage: number) => {
+  currentPage.value = newPage
+  refreshDocuments()
+}
+
 const refreshDocuments = async () => {
-  loading.value = true
-  // 模拟加载
-  setTimeout(() => {
+  console.log('当前token:', localStorage.getItem('access_token'))
+  console.log('调用接口:', `${API_CONFIG.ENDPOINTS.DOCUMENTS.BASE}?skip=0&limit=10`)
+
+  // 在调用接口前检查token
+  const token = localStorage.getItem('access_token')
+  console.log('token:', token)
+  if (!token) {
+    // 跳转到登录页面
+    console.log('未找到token，跳转到登录页面')
+    window.location.href = '/login'
+    return
+  }
+
+  try {
+    loading.value = true
+    const skip = (currentPage.value - 1) * pageSize.value
+    const response = await request.get(`${API_CONFIG.ENDPOINTS.DOCUMENTS.BASE}?skip=${skip}&limit=${pageSize.value}`)
+    
+    documents.value = response.documents || []
+    total.value = response.total || 0
+    
+    ElMessage.success(`已加载 ${documents.value.length} 个文档`)
+  } catch (error: any) {
+    console.error('获取文档列表失败:', error)
+    ElMessage.error('获取文档列表失败: ' + (error.response?.data?.message || error.message))
+  } finally {
     loading.value = false
-    ElMessage.success('文档列表已刷新')
-  }, 1000)
+  }
 }
 
 const previewDocument = (doc: any) => {
-  ElMessage.info(`预览文档: ${doc.name}`)
+  if (doc.status !== 'processed') {
+    ElMessage.warning('文档尚未处理完成，无法预览')
+    return
+  }
+  ElMessage.info(`预览文档: ${doc.filename}`)
+  // TODO: 实现文档预览功能
+}
+
+const downloadDocument = async (doc: any) => {
+  try {
+    ElMessage.info('开始下载文档...')
+    
+    // 使用直接下载方式
+    const response = await request.get(API_CONFIG.ENDPOINTS.DOCUMENTS.DOWNLOAD(doc.id), {
+      responseType: 'blob'
+    })
+    
+    // 创建下载链接
+    const url = window.URL.createObjectURL(new Blob([response]))
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', doc.filename)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+    
+    ElMessage.success('文档下载成功')
+  } catch (error: any) {
+    console.error('下载文档失败:', error)
+    ElMessage.error('下载文档失败: ' + (error.response?.data?.message || error.message))
+  }
 }
 
 const analyzeDocument = (doc: any) => {
-  ElMessage.info(`开始分析文档: ${doc.name}`)
+  if (doc.status !== 'processed') {
+    ElMessage.warning('文档尚未处理完成，无法分析')
+    return
+  }
+  ElMessage.info(`开始分析文档: ${doc.filename}`)
+  // TODO: 实现文档分析功能
 }
 
 const deleteDocument = async (doc: any) => {
   try {
-    await ElMessageBox.confirm(`确定要删除文档"${doc.name}"吗？`, '提示', {
+    await ElMessageBox.confirm(`确定要删除文档"${doc.filename}"吗？此操作不可恢复。`, '提示', {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
       type: 'warning'
     })
     
-    documents.value = documents.value.filter(d => d.id !== doc.id)
+    await request.delete(API_CONFIG.ENDPOINTS.DOCUMENTS.DELETE(doc.id))
     ElMessage.success('文档删除成功')
-  } catch {
-    // 用户取消删除
+    await refreshDocuments()
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      console.error('删除文档失败:', error)
+      ElMessage.error('删除文档失败: ' + (error.response?.data?.message || error.message))
+    }
   }
 }
 
-const handleFileChange = (file: any, fileList: any[]) => {
-  console.log('File changed:', file, fileList)
+const beforeUpload = (file: any) => {
+  // 文件类型检查
+  const fileExtension = '.' + file.name.split('.').pop().toLowerCase()
+  
+  if (!API_CONFIG.UPLOAD.ALLOWED_TYPES.includes(fileExtension)) {
+    ElMessage.error('不支持的文件类型，请上传PDF、Word或文本文件')
+    return false
+  }
+  
+  // 文件大小检查（10MB）
+  const isLt10M = file.size < API_CONFIG.UPLOAD.MAX_FILE_SIZE
+  if (!isLt10M) {
+    ElMessage.error('文件大小不能超过10MB')
+    return false
+  }
+  
+  return true
 }
 
-const handleUpload = async () => {
-  if (fileList.value.length === 0) {
+const submitUpload = () => {
+  if (!uploadRef.value) return
+  const uploadFiles = uploadRef.value.uploadFiles
+  if (uploadFiles.length === 0) {
     ElMessage.warning('请选择要上传的文件')
     return
   }
   
   uploading.value = true
-  
-  // 模拟上传过程
-  setTimeout(() => {
-    uploading.value = false
+  uploadRef.value.submit()
+}
+
+const handleUploadSuccess = (response: any, file: any) => {
+  uploading.value = false
+  if (response.error) {
+    ElMessage.error('文件上传失败: ' + response.message)
+  } else {
+    ElMessage.success('文件上传成功')
     showUploadDialog.value = false
     fileList.value = []
-    ElMessage.success('文件上传成功')
     refreshDocuments()
-  }, 2000)
+  }
+}
+
+const handleUploadError = (error: any, file: any) => {
+  uploading.value = false
+  ElMessage.error('文件上传失败: ' + (error.message || '网络错误'))
 }
 
 onMounted(() => {

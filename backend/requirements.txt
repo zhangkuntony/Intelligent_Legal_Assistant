@@ -17,8 +17,11 @@ langchain
 langchain-openai
 
 # 文件处理
-PyPDF2
-python-docx
+PyPDF2>=3.0.0
+pdfplumber>=0.10.0
+python-docx>=0.8.11
+chardet>=5.2.0
+langchain-text-splitters>=0.0.1
 
 # 认证和安全
 python-jose[cryptography]

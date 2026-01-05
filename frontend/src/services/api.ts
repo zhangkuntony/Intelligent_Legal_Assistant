@@ -1,11 +1,12 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import type { AxiosResponse, AxiosRequestConfig } from 'axios'
+import { API_CONFIG } from '../config/api'
 
 // 创建axios实例
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
-  timeout: 30000,
+  baseURL: API_CONFIG.BASE_URL,
+  timeout: API_CONFIG.REQUEST.TIMEOUT,
   headers: {
     'Content-Type': 'application/json',
   },

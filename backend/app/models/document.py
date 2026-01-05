@@ -2,7 +2,7 @@
 文档和向量数据模型
 """
 
-from sqlalchemy import Column, String, Text, Integer, BigInteger, Boolean, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, String, Text, Integer, BigInteger, DateTime, ForeignKey, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship

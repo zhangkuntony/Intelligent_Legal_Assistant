@@ -11,8 +11,8 @@ from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from ..core.config import settings
-from ..core.database import get_db
+from .config import settings
+from .database import get_db
 from ..models.user import User
 
 # 密码加密上下文
@@ -35,26 +35,26 @@ def get_password_hash(password: str) -> str:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """创建访问令牌"""
     to_encode = data.copy()
-    
+
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(
             minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
         )
-    
+
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(
-        to_encode, 
-        settings.SECRET_KEY, 
+        to_encode,
+        settings.SECRET_KEY,
         algorithm=settings.ALGORITHM
     )
     return encoded_jwt
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: AsyncSession = Depends(get_db)
+        token: str = Depends(oauth2_scheme),
+        db: AsyncSession = Depends(get_db)
 ) -> User:
     """获取当前认证用户"""
     credentials_exception = HTTPException(
@@ -62,11 +62,11 @@ async def get_current_user(
         detail="无法验证凭据",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    
+
     try:
         payload = jwt.decode(
-            token, 
-            settings.SECRET_KEY, 
+            token,
+            settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM]
         )
         user_id: str = payload.get("sub")
@@ -74,20 +74,20 @@ async def get_current_user(
             raise credentials_exception
     except JWTError:
         raise credentials_exception
-    
+
     # 查询用户
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    
+
     if user is None:
         raise credentials_exception
-    
+
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="用户账户已被禁用"
         )
-    
+
     return user
 
 
@@ -121,8 +121,8 @@ def verify_reset_token(token: str) -> Optional[str]:
     """验证密码重置令牌"""
     try:
         payload = jwt.decode(
-            token, 
-            settings.SECRET_KEY, 
+            token,
+            settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM]
         )
         email: str = payload.get("sub")
@@ -136,8 +136,10 @@ def verify_reset_token(token: str) -> Optional[str]:
 # 权限验证装饰器（示例）
 def require_permission(permission: str):
     """权限验证装饰器（预留接口）"""
+
     def decorator(current_user: User = Depends(get_current_user)):
         # 这里可以实现具体的权限验证逻辑
         # 例如：检查用户角色、权限等
         return current_user
+
     return decorator

@@ -29,11 +29,11 @@ class ProcessingStats:
     processing_time: float = 0.0
     memory_usage: float = 0.0
     errors: List[str] = None
-    
+
     def __post_init__(self):
         if self.errors is None:
             self.errors = []
-    
+
     def calculate_processing_time(self):
         """计算处理时间"""
         if self.end_time:
@@ -49,7 +49,7 @@ class DocumentChunk:
     metadata: Dict[str, Any]
     page_number: Optional[int] = None
     section_title: Optional[str] = None
-    
+
     def __post_init__(self):
         if not self.chunk_id:
             self.chunk_id = f"chunk_{self.chunk_index}_{hashlib.md5(self.content.encode()).hexdigest()[:8]}"
@@ -64,11 +64,11 @@ class ProcessedDocument:
     metadata: Dict[str, Any]
     processing_stats: ProcessingStats
     status: ProcessingStatus
-    
+
     def __post_init__(self):
         if self.processing_stats is None:
             self.processing_stats = ProcessingStats(start_time=datetime.now())
-        
+
         # 自动计算统计信息
         self.processing_stats.total_chars = len(self.extracted_text)
         self.processing_stats.total_chunks = len(self.chunks)
@@ -77,35 +77,35 @@ class ProcessedDocument:
 
 class BaseDocumentProcessor(ABC):
     """文档处理器基类"""
-    
+
     def __init__(self, config: Dict[str, Any] = None):
         self.config = config or {}
         self.supported_formats = []
-    
+
     async def process_file(self, file_path: str, **kwargs) -> ProcessedDocument:
         """处理单个文件"""
         start_time = datetime.now()
-        
+
         try:
             # 验证文件
             if not await self.validate_file(file_path):
                 raise ValueError(f"文件验证失败: {file_path}")
-            
+
             # 提取文本
             extracted_text = await self.extract_text(file_path)
-            
+
             # 提取元数据
             metadata = await self.extract_metadata(file_path)
-            
+
             # 预处理文本
             preprocessed_text = await self.preprocess_text(extracted_text)
-            
+
             # 分块处理
             chunks = await self.chunk_text(preprocessed_text, **kwargs)
-            
+
             # 创建处理结果
             processing_stats = ProcessingStats(start_time=start_time, end_time=datetime.now())
-            
+
             result = ProcessedDocument(
                 original_path=file_path,
                 extracted_text=extracted_text,
@@ -114,16 +114,16 @@ class BaseDocumentProcessor(ABC):
                 processing_stats=processing_stats,
                 status=ProcessingStatus.COMPLETED
             )
-            
+
             return result
-            
+
         except Exception as e:
             processing_stats = ProcessingStats(
-                start_time=start_time, 
+                start_time=start_time,
                 end_time=datetime.now(),
                 errors=[str(e)]
             )
-            
+
             return ProcessedDocument(
                 original_path=file_path,
                 extracted_text="",
@@ -132,35 +132,35 @@ class BaseDocumentProcessor(ABC):
                 processing_stats=processing_stats,
                 status=ProcessingStatus.FAILED
             )
-    
+
     @abstractmethod
     async def extract_text(self, file_path: str) -> str:
         """提取文本内容"""
         pass
-    
+
     async def validate_file(self, file_path: str) -> bool:
         """验证文件格式和完整性"""
         try:
             # 检查文件是否存在
             if not os.path.exists(file_path):
                 return False
-            
+
             # 检查文件大小
             file_size = os.path.getsize(file_path)
             max_size = self.config.get('max_file_size', 50 * 1024 * 1024)  # 默认50MB
             if file_size > max_size:
                 return False
-            
+
             # 检查文件扩展名
             file_ext = Path(file_path).suffix.lower()
             if file_ext not in self.supported_formats:
                 return False
-            
+
             return True
-            
+
         except Exception:
             return False
-    
+
     async def extract_metadata(self, file_path: str) -> Dict[str, Any]:
         """提取文件元数据"""
         try:
@@ -173,36 +173,36 @@ class BaseDocumentProcessor(ABC):
             }
         except Exception:
             return {}
-    
+
     async def preprocess_text(self, text: str) -> str:
         """预处理文本"""
         # 移除多余空格和换行符
         text = ' '.join(text.split())
-        
+
         # 标准化标点符号
         text = text.replace('。', '.').replace('，', ',').replace('；', ';')
-        
+
         return text
-    
+
     async def chunk_text(self, text: str, **kwargs) -> List[DocumentChunk]:
         """将文本分割成块"""
         chunk_size = kwargs.get('chunk_size', self.config.get('default_chunk_size', 1000))
         overlap = kwargs.get('overlap', self.config.get('default_overlap', 100))
-        
+
         chunks = []
         start = 0
         chunk_index = 0
-        
+
         while start < len(text):
             end = start + chunk_size
-            
+
             # 如果超过文本长度，则取到文本末尾
             if end > len(text):
                 end = len(text)
-            
+
             # 获取分块内容
             chunk_content = text[start:end]
-            
+
             # 创建分块
             chunk = DocumentChunk(
                 chunk_id=f"chunk_{chunk_index}",
@@ -214,19 +214,19 @@ class BaseDocumentProcessor(ABC):
                     'chunk_size': len(chunk_content)
                 }
             )
-            
+
             chunks.append(chunk)
             chunk_index += 1
-            
+
             # 移动到下一个分块起始位置（考虑重叠）
             start = end - overlap
-            
+
             # 如果已经处理完所有文本，则退出循环
             if start >= len(text):
                 break
-        
+
         return chunks
-    
+
     def supports_format(self, file_path: str) -> bool:
         """检查是否支持该文件格式"""
         file_ext = Path(file_path).suffix.lower()

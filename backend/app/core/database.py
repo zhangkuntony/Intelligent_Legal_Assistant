@@ -1,16 +1,13 @@
 """
 数据库连接和配置
 """
-
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, relationship
-from ..core.config import settings
-
+from .config import settings
 
 class Base(DeclarativeBase):
     """SQLAlchemy基类"""
     pass
-
 
 # 创建异步数据库引擎
 engine = create_async_engine(
@@ -27,7 +24,6 @@ AsyncSessionLocal = async_sessionmaker(
     expire_on_commit=False,
 )
 
-
 async def get_db():
     """依赖注入：获取数据库会话"""
     async with AsyncSessionLocal() as session:
@@ -36,11 +32,10 @@ async def get_db():
         finally:
             await session.close()
 
-
 # 导入所有模型以确保它们被注册
-from ..models.user import User
 from ..models.conversation import Conversation, Message
 from ..models.document import Document, DocumentEmbedding
+from ..models.user import User
 
 # 建立模型关系（避免循环导入）
 User.conversations = relationship("Conversation", back_populates="user")

@@ -19,11 +19,10 @@ except ImportError:
 
 from ..core.database import Base
 
-
 class Document(Base):
     """文档模型"""
     __tablename__ = "documents"
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     title = Column(String(200), nullable=False)
@@ -38,11 +37,11 @@ class Document(Base):
     meta_data = Column(JSON)  # 存储文档元数据
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    
+
     # 关系定义
     user = relationship("User", back_populates="documents")
     embeddings = relationship("DocumentEmbedding", back_populates="document", cascade="all, delete-orphan")
-    
+
     def __repr__(self):
         return f"<Document(id={self.id}, title={self.title}, user_id={self.user_id})>"
 
@@ -50,23 +49,23 @@ class Document(Base):
 class DocumentEmbedding(Base):
     """文档向量模型"""
     __tablename__ = "document_embeddings"
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False, index=True)
     chunk_index = Column(Integer, nullable=False)
     chunk_content = Column(Text, nullable=False)
-    
+
     # 使用pgvector的Vector类型，如果不可用则使用JSON作为备用
     if VECTOR_AVAILABLE:
         embedding = Column(Vector(1536))  # OpenAI embedding维度
     else:
         embedding = Column(JSON)  # 备用方案
-    
+
     meta_data = Column(JSON)  # 存储分块元数据
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+
     # 关系定义
     document = relationship("Document", back_populates="embeddings")
-    
+
     def __repr__(self):
         return f"<DocumentEmbedding(id={self.id}, document_id={self.document_id}, chunk_index={self.chunk_index})>"

@@ -1,6 +1,7 @@
 """
 智能法律助手 - FastAPI后端主应用
 """
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,28 +15,12 @@ from pathlib import Path
 
 from .core.config import settings
 from .core.database import engine, Base
-from .api import auth, conversations, documents, users
+from .api.auth import router as auth_router
+from .api.users import router as users_router
+from .api.conversations import router as conversations_router
+from .api.documents import router as documents_router
 from .core.security import get_current_user
 from .models.user import User
-
-# 创建FastAPI应用实例
-app = FastAPI(
-    title="智能法律助手 API",
-    description="基于AI技术的智能法律咨询系统",
-    version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
-)
-
-# 配置CORS中间件
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 # 配置日志系统
 def setup_logging():
@@ -86,17 +71,43 @@ def setup_logging():
 
     logging.config.dictConfig(logging_config)
 
-
-# 创建数据库表（开发环境使用）
-@app.on_event("startup")
-async def startup_event():
-    """应用启动时创建数据库表和日志配置"""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    # 启动时执行
     setup_logging()
-    """应用启动时创建数据库表"""
     if settings.ENVIRONMENT == "development":
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+
+    # 注册API路由
+    app.include_router(auth_router, prefix="/api/auth", tags=["认证"])
+    app.include_router(users_router, prefix="/api/users", tags=["用户"])
+    app.include_router(conversations_router, prefix="/api/conversations", tags=["对话"])
+    app.include_router(documents_router, prefix="/api/documents", tags=["文档"])
+
     print("🚀 智能法律助手后端服务启动完成")
+    yield
+    # 关闭时执行（如果有需要清理的资源）
+
+# 创建FastAPI应用实例
+app = FastAPI(
+    title="智能法律助手 API",
+    description="基于AI技术的智能法律咨询系统",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan           # 添加生命周期
+)
+
+# 配置CORS中间件
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 健康检查端点
 @app.get("/")
@@ -111,16 +122,12 @@ async def root():
 @app.get("/health")
 async def health_check():
     """健康检查端点"""
+    print("health check")
+    logging.info("health check log")
     return {
         "status": "healthy",
         "timestamp": "2025-01-01T00:00:00Z"
     }
-
-# 注册API路由
-app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
-app.include_router(users.router, prefix="/api/users", tags=["用户"])
-app.include_router(conversations.router, prefix="/api/conversations", tags=["对话"])
-app.include_router(documents.router, prefix="/api/documents", tags=["文档"])
 
 # 受保护的示例端点
 @app.get("/api/protected")

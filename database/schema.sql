@@ -13,7 +13,7 @@ CREATE EXTENSION IF NOT EXISTS "vector";
 
 -- 用户表
 CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username VARCHAR(50) UNIQUE NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
@@ -28,7 +28,7 @@ CREATE TABLE users (
 
 -- 对话会话表
 CREATE TABLE conversations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title VARCHAR(200) NOT NULL DEFAULT '新对话',
     description TEXT,
@@ -39,18 +39,18 @@ CREATE TABLE conversations (
 
 -- 消息表
 CREATE TABLE messages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     role VARCHAR(20) NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
     content TEXT NOT NULL,
     tokens_used INTEGER DEFAULT 0,
-    metadata JSONB,
+    meta_data JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 知识库文档表
 CREATE TABLE documents (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title VARCHAR(200) NOT NULL,
     filename VARCHAR(255) NOT NULL,
@@ -61,19 +61,19 @@ CREATE TABLE documents (
     processing_error TEXT,
     total_chunks INTEGER DEFAULT 0,
     processed_chunks INTEGER DEFAULT 0,
-    metadata JSONB,
+    meta_data JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 文档向量表（使用pgvector扩展）
 CREATE TABLE document_embeddings (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     chunk_index INTEGER NOT NULL,
     chunk_content TEXT NOT NULL,
     embedding VECTOR(1536),  -- OpenAI embedding维度
-    metadata JSONB,
+    meta_data JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -185,10 +185,10 @@ GROUP BY d.id, u.username;
 
 -- ==================== 示例数据（可选） ====================
 
--- 插入测试用户（密码为：test123，使用bcrypt加密）
+-- 插入测试用户（密码为：123456，使用bcrypt加密）
 INSERT INTO users (username, email, password_hash, full_name) VALUES
-('admin', 'admin@legal.com', '$2b$12$LQv3c1yqBWVHrn1Z5YzQeO6YzQeO6YzQeO6YzQeO6YzQeO6YzQeO6Y', '系统管理员'),
-('testuser', 'user@legal.com', '$2b$12$LQv3c1yqBWVHrn1Z5YzQeO6YzQeO6YzQeO6YzQeO6YzQeO6YzQeO6Y', '测试用户');
+('admin', 'admin@legal.com', '$2b$12$1CHH902i8.Y5DYlm.2M20OhsBJbmP5Uh/ZyL6tUwPHgPjsoRdJnCG', '系统管理员'),
+('testuser', 'user@legal.com', '$2b$12$jnSy0OdIS7NOX6poMQbtou5uB4szUzZdDAur883CTR/mXlCjHVlEi', '测试用户');
 
 -- 插入测试对话
 INSERT INTO conversations (user_id, title) VALUES

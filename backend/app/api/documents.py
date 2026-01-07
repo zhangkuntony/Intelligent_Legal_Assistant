@@ -27,12 +27,13 @@ router = APIRouter()
 # 临时下载令牌存储
 _download_tokens = {}
 
+
 @router.get("")
 async def get_documents(
-    skip: int = 0,
-    limit: int = 20,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+        skip: int = 0,
+        limit: int = 20,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
 ):
     print(f"get documents skip: {skip}, limit: {limit}")
     """获取用户文档列表"""
@@ -64,12 +65,13 @@ async def get_documents(
         "total": len(documents)
     }
 
+
 @router.post("/upload")
 async def upload_document(
-    file: UploadFile = File(...),
-    title: str = Form(None),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+        file: UploadFile = File(...),
+        title: str = Form(None),
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
 ):
     """上传文档"""
     # 验证文件类型
@@ -98,20 +100,20 @@ async def upload_document(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="文件大小超过限制（最大50MB）"
         )
-    
+
     # 创建上传目录
     upload_dir = Path(settings.UPLOAD_DIR)
     upload_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # 生成唯一文件名
     file_extension = Path(file.filename).suffix
     unique_filename = f"{uuid.uuid4()}{file_extension}"
     file_path = upload_dir / unique_filename
-    
+
     # 保存文件
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    
+
     # 创建文档记录
     document_title = title or Path(file.filename).stem
     document = Document(
@@ -123,11 +125,11 @@ async def upload_document(
         file_type=file.content_type,
         status="uploaded"
     )
-    
+
     db.add(document)
     await db.commit()
     await db.refresh(document)
-    
+
     return {
         "message": "文档上传成功",
         "document": {
@@ -140,11 +142,12 @@ async def upload_document(
         }
     }
 
+
 @router.get("/{document_id}/download")
 async def download_document(
-    document_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+        document_id: str,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
 ):
     """
     下载文档源文件
@@ -159,27 +162,27 @@ async def download_document(
 
     if not document:
         raise HTTPException(
-            status_code = status.HTTP_404_NOT_FOUND,
-            detail = "文档不存在"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="文档不存在"
         )
 
     # 2. 验证用户权限
     if str(document.user_id) != str(current_user.id):
         raise HTTPException(
-            status_code = status.HTTP_403_FORBIDDEN,
-            detail = "没有权限下载该文档"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="没有权限下载该文档"
         )
 
     # 3. 验证文件是否存在
     if not os.path.exists(document.file_path):
         raise HTTPException(
-            status_code = status.HTTP_404_NOT_FOUND,
-            detail = "文件不存在或已被删除"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="文件不存在或已被删除"
         )
 
     # 4. 返回安全下载信息（不直接暴露文件路径）
     file_path = Path(document.file_path)
-    filename = file_path.name               # 获取UUID文件名
+    filename = file_path.name  # 获取UUID文件名
 
     return {
         "download_url": f"/api/uploads/{filename}",
@@ -310,11 +313,12 @@ async def download_with_token(token: str):
         }
     )
 
+
 @router.get("/{document_id}")
 async def get_document(
-    document_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+        document_id: str,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
 ):
     """获取文档详情"""
     result = await db.execute(
@@ -323,20 +327,20 @@ async def get_document(
         .where(Document.id == document_id)
     )
     document = result.scalar_one_or_none()
-    
+
     if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="文档不存在"
         )
-    
+
     # 检查权限
     if str(document.user_id) != str(current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="没有权限访问该文档"
         )
-    
+
     response_data = {
         "document": {
             "id": str(document.id),
@@ -374,37 +378,37 @@ async def get_document(
 
 @router.put("/{document_id}")
 async def update_document(
-    document_id: str,
-    title: str = None,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+        document_id: str,
+        title: str = None,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
 ):
     """更新文档信息"""
     result = await db.execute(
         select(Document).where(Document.id == document_id)
     )
     document = result.scalar_one_or_none()
-    
+
     if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="文档不存在"
         )
-    
+
     # 检查权限
     if str(document.user_id) != str(current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="没有权限修改该文档"
         )
-    
+
     # 更新字段
     if title is not None:
         document.title = title
-    
+
     await db.commit()
     await db.refresh(document)
-    
+
     return {
         "message": "文档信息更新成功",
         "document": {
@@ -417,89 +421,89 @@ async def update_document(
 
 @router.delete("/{document_id}")
 async def delete_document(
-    document_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+        document_id: str,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
 ):
     """删除文档"""
     result = await db.execute(
         select(Document).where(Document.id == document_id)
     )
     document = result.scalar_one_or_none()
-    
+
     if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="文档不存在"
         )
-    
+
     # 检查权限
     if str(document.user_id) != str(current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="没有权限删除该文档"
         )
-    
+
     # 删除物理文件
     if os.path.exists(document.file_path):
         os.remove(document.file_path)
-    
+
     await db.delete(document)
     await db.commit()
-    
+
     return {"message": "文档删除成功"}
 
 
 @router.post("/{document_id}/process")
 async def process_document(
-    document_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+        document_id: str,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
 ):
     """处理文档（生成向量嵌入）"""
     result = await db.execute(
         select(Document).where(Document.id == document_id)
     )
     document = result.scalar_one_or_none()
-    
+
     if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="文档不存在"
         )
-    
+
     # 检查权限
     if str(document.user_id) != str(current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="没有权限处理该文档"
         )
-    
+
     # 检查文档状态
     if document.status == "processing":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="文档正在处理中"
         )
-    
+
     if document.status == "completed":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="文档已处理完成"
         )
-    
+
     # 这里应该启动异步处理任务
     # 暂时模拟处理过程
     document.status = "processing"
     await db.commit()
-    
+
     # 模拟处理完成
     # 在实际应用中，这里应该调用异步任务队列
     document.status = "completed"
     document.total_chunks = 10  # 模拟分块数量
     document.processed_chunks = 10
     await db.commit()
-    
+
     return {
         "message": "文档处理任务已启动",
         "document_id": str(document.id),
@@ -509,11 +513,11 @@ async def process_document(
 
 @router.get("/{document_id}/embeddings")
 async def get_document_embeddings(
-    document_id: str,
-    skip: int = 0,
-    limit: int = 50,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+        document_id: str,
+        skip: int = 0,
+        limit: int = 50,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
 ):
     """获取文档的向量嵌入列表"""
     # 检查文档权限
@@ -521,19 +525,19 @@ async def get_document_embeddings(
         select(Document).where(Document.id == document_id)
     )
     document = result.scalar_one_or_none()
-    
+
     if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="文档不存在"
         )
-    
+
     if str(document.user_id) != str(current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="没有权限访问该文档的嵌入信息"
         )
-    
+
     # 获取嵌入列表
     result = await db.execute(
         select(DocumentEmbedding)
@@ -543,7 +547,7 @@ async def get_document_embeddings(
         .limit(limit)
     )
     embeddings = result.scalars().all()
-    
+
     return {
         "embeddings": [
             {

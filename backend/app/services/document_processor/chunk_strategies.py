@@ -11,7 +11,7 @@ from .base_processor import DocumentChunk
 
 class ChunkingStrategy(ABC):
     """分块策略基类"""
-    
+
     @abstractmethod
     def chunk_text(self, text: str, **kwargs) -> List[DocumentChunk]:
         """将文本分割成块"""
@@ -20,27 +20,27 @@ class ChunkingStrategy(ABC):
 
 class FixedSizeChunker(ChunkingStrategy):
     """固定大小分块器"""
-    
+
     def __init__(self, chunk_size: int = 1000, overlap: int = 100):
         self.chunk_size = chunk_size
         self.overlap = overlap
-    
+
     def chunk_text(self, text: str, **kwargs) -> List[DocumentChunk]:
         """固定大小分块"""
         chunks = []
         start = 0
         chunk_index = 0
-        
+
         while start < len(text):
             end = start + self.chunk_size
-            
+
             # 如果超过文本长度，则取到文本末尾
             if end > len(text):
                 end = len(text)
-            
+
             # 获取分块内容
             chunk_content = text[start:end]
-            
+
             # 创建分块
             chunk = DocumentChunk(
                 chunk_id=f"fixed_chunk_{chunk_index}",
@@ -55,37 +55,37 @@ class FixedSizeChunker(ChunkingStrategy):
                     'content_length': len(chunk_content)
                 }
             )
-            
+
             chunks.append(chunk)
             chunk_index += 1
-            
+
             # 移动到下一个分块起始位置（考虑重叠）
             start = end - self.overlap
-            
+
             # 如果已经处理完所有文本，则退出循环
             if start >= len(text):
                 break
-        
+
         return chunks
 
 
 class SemanticChunker(ChunkingStrategy):
     """语义分块器（基于句子边界）"""
-    
+
     def __init__(self, max_chunk_size: int = 1000, min_chunk_size: int = 200):
         self.max_chunk_size = max_chunk_size
         self.min_chunk_size = min_chunk_size
-    
+
     def chunk_text(self, text: str, **kwargs) -> List[DocumentChunk]:
         """语义分块"""
         chunks = []
         chunk_index = 0
-        
+
         # 分割成句子
         sentences = self._split_sentences(text)
-        
+
         current_chunk = ""
-        
+
         for sentence in sentences:
             # 如果添加当前句子后不超过最大限制
             if len(current_chunk) + len(sentence) + 1 <= self.max_chunk_size:
@@ -116,7 +116,7 @@ class SemanticChunker(ChunkingStrategy):
                         current_chunk += " " + sentence
                     else:
                         current_chunk = sentence
-        
+
         # 处理最后一个块
         if current_chunk and len(current_chunk) >= self.min_chunk_size:
             chunk = DocumentChunk(
@@ -131,54 +131,54 @@ class SemanticChunker(ChunkingStrategy):
                 }
             )
             chunks.append(chunk)
-        
+
         return chunks
-    
+
     def _split_sentences(self, text: str) -> List[str]:
         """分割文本成句子"""
         # 使用正则表达式分割句子
         sentence_endings = r'[。！？!?\n]'
         sentences = re.split(sentence_endings, text)
-        
+
         # 清理空句子和空格
         sentences = [s.strip() for s in sentences if s.strip()]
-        
+
         return sentences
 
 
 class LegalDocumentChunker(ChunkingStrategy):
     """法律文档专用分块器"""
-    
+
     def __init__(self, max_chunk_size: int = 1200):
         self.max_chunk_size = max_chunk_size
         self.legal_patterns = [
             r'第[一二三四五六七八九十]+条',  # 法律条款
-            r'第[0-9]+条',                    # 数字条款
-            r'^[一二三四五六七八九十]、',     # 中文序号
-            r'^[0-9]+\.',                    # 数字序号
-            r'^[一二三四五六七八九十]\s',     # 中文序号加空格
-            r'^第[一二三四五六七八九十]+章',   # 章节
-            r'^第[0-9]+章',                  # 数字章节
+            r'第[0-9]+条',  # 数字条款
+            r'^[一二三四五六七八九十]、',  # 中文序号
+            r'^[0-9]+\.',  # 数字序号
+            r'^[一二三四五六七八九十]\s',  # 中文序号加空格
+            r'^第[一二三四五六七八九十]+章',  # 章节
+            r'^第[0-9]+章',  # 数字章节
         ]
-    
+
     def chunk_text(self, text: str, **kwargs) -> List[DocumentChunk]:
         """法律文档分块"""
         chunks = []
         chunk_index = 0
-        
+
         # 按行分割
         lines = text.split('\n')
         current_clause = ""
         current_title = ""
-        
+
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            
+
             # 检查是否是法律条款开始
             is_clause_start = self._is_legal_clause_start(line)
-            
+
             if is_clause_start:
                 # 保存上一个条款
                 if current_clause:
@@ -202,11 +202,11 @@ class LegalDocumentChunker(ChunkingStrategy):
                         )
                         chunks.append(chunk)
                         chunk_index += 1
-                
+
                 # 开始新条款
                 current_clause = line
                 current_title = line
-            
+
             else:
                 # 继续当前条款
                 if current_clause:
@@ -214,7 +214,7 @@ class LegalDocumentChunker(ChunkingStrategy):
                 else:
                     current_clause = line
                     current_title = "前言"
-        
+
         # 处理最后一个条款
         if current_clause:
             if len(current_clause) > self.max_chunk_size:
@@ -234,50 +234,50 @@ class LegalDocumentChunker(ChunkingStrategy):
                     section_title=current_title
                 )
                 chunks.append(chunk)
-        
+
         return chunks
-    
+
     def _is_legal_clause_start(self, line: str) -> bool:
         """判断是否是法律条款开始"""
         for pattern in self.legal_patterns:
             if re.match(pattern, line):
                 return True
-        
+
         # 检查是否是章节标题
         if self._is_chapter_title(line):
             return True
-        
+
         return False
-    
+
     def _is_chapter_title(self, line: str) -> bool:
         """判断是否是章节标题"""
         chapter_patterns = [
             r'^第[一二三四五六七八九十]+章',
             r'^第[0-9]+章',
             r'^CHAPTER\s+[IVXLCDM]+',  # 罗马数字章节
-            r'^Chapter\s+[0-9]+',      # 英文章节
+            r'^Chapter\s+[0-9]+',  # 英文章节
         ]
-        
+
         for pattern in chapter_patterns:
             if re.match(pattern, line, re.IGNORECASE):
                 return True
-        
+
         return False
-    
+
     def _split_long_clause(self, clause_text: str, clause_title: str, start_index: int) -> List[DocumentChunk]:
         """分割过长的条款"""
         sub_chunks = []
         chunk_index = start_index
-        
+
         # 按段落分割
         paragraphs = clause_text.split('\n\n')
         current_sub_chunk = ""
-        
+
         for paragraph in paragraphs:
             paragraph = paragraph.strip()
             if not paragraph:
                 continue
-            
+
             # 如果当前子块加上新段落不超过限制
             if len(current_sub_chunk) + len(paragraph) + 2 <= self.max_chunk_size:
                 if current_sub_chunk:
@@ -306,7 +306,7 @@ class LegalDocumentChunker(ChunkingStrategy):
                     # 单个段落就超过限制，强制分割
                     sentences = self._split_sentences(paragraph)
                     current_sentence_group = ""
-                    
+
                     for sentence in sentences:
                         if len(current_sentence_group) + len(sentence) + 1 <= self.max_chunk_size:
                             if current_sentence_group:
@@ -330,9 +330,9 @@ class LegalDocumentChunker(ChunkingStrategy):
                                 )
                                 sub_chunks.append(chunk)
                                 chunk_index += 1
-                            
+
                             current_sentence_group = sentence
-                    
+
                     # 添加最后一个句子组
                     if current_sentence_group:
                         chunk = DocumentChunk(
@@ -349,7 +349,7 @@ class LegalDocumentChunker(ChunkingStrategy):
                         )
                         sub_chunks.append(chunk)
                         chunk_index += 1
-        
+
         # 添加最后一个子块
         if current_sub_chunk:
             chunk = DocumentChunk(
@@ -365,9 +365,9 @@ class LegalDocumentChunker(ChunkingStrategy):
                 section_title=f"{clause_title} - 分段{chunk_index - start_index + 1}"
             )
             sub_chunks.append(chunk)
-        
+
         return sub_chunks
-    
+
     def _split_sentences(self, text: str) -> List[str]:
         """分割文本成句子"""
         sentence_endings = r'[。！？!?]'

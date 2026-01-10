@@ -56,7 +56,6 @@
               <span>文档管理</span>
             </template>
             <el-menu-item index="/documents">文档列表</el-menu-item>
-            <el-menu-item index="/document-upload">上传文档</el-menu-item>
             <el-menu-item index="/document-categories">分类管理</el-menu-item>
           </el-sub-menu>
           

@@ -27,14 +27,16 @@
         <el-option label="处理中" value="processing" />
         <el-option label="已处理" value="processed" />
         <el-option label="处理失败" value="error" />
-      </el-select>
+      </el-select>      
 
       <el-select v-model="filterType" placeholder="文档类型" style="width: 400px;" @change="handleFilter">
-        <el-option label="全部类型" value="" />
-        <el-option label="合同文件" value="contract" />
-        <el-option label="法律文书" value="legal" />
-        <el-option label="证据材料" value="evidence" />
-        <el-option label="其他" value="other" />
+        <el-option label="全部分类" value="" />
+        <el-option 
+          v-for="category in categories" 
+          :key="category.id"
+          :label="category.category_name" 
+          :value="category.category_code" 
+        />
       </el-select>
     </div>
 
@@ -53,7 +55,9 @@
         </el-table-column>
         <el-table-column prop="file_type" label="类型" width="120">
           <template #default="{ row }">
-            <el-tag :type="getTagType(row.file_type)">{{ getTypeText(row.file_type) }}</el-tag>
+            <el-tag :type="getTagType(row.file_category)">
+              {{ row.file_category }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="file_size" label="大小" width="100">
@@ -97,7 +101,7 @@
               删除
             </el-button>
           </template>
-        </el-table-column>
+        </el-table-column>       
       </el-table>
     </div>
 
@@ -138,9 +142,32 @@
           </div>
         </template>
       </el-upload>
+
+      <div class="upload-info">
+        <el-form :model="form" label-width="80px" style="margin-top: 20px;">
+          <el-form-item label="文档分类">
+            <el-select v-model="form.category" placeholder="请选择分类" style="width: 100%">
+              <el-option label="合同文件" value="contract" />
+              <el-option label="法律文书" value="legal" />
+              <el-option label="案例资料" value="case" />
+              <el-option label="其他文档" value="other" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="文档描述">
+            <el-input
+              v-model="form.description"
+              type="textarea"
+              :rows="3"
+              placeholder="请输入文档描述"
+            />
+          </el-form-item>
+        </el-form>
+      </div>
+
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="showUploadDialog = false">取消</el-button>
+          <el-button @click="handleReset">重置</el-button>
           <el-button type="primary" @click="submitUpload" :loading="uploading">
             上传
           </el-button>
@@ -151,12 +178,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Folder } from '@element-plus/icons-vue'
 import { API_CONFIG } from '../config/api'
 import { useAuthStore } from '../stores/auth'
 import { request } from '../services/api'
+import { formatDateTime } from '../utils/dateTimeUtils'
 
 // 响应式数据
 const loading = ref(false)
@@ -171,8 +199,19 @@ const filterStatus = ref('')
 const currentPage = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
+const categories = ref<any[]>([])
 
 const documents = ref<any[]>([])
+
+interface UploadForm {
+  category: string
+  description: string
+}
+
+const form = reactive<UploadForm>({
+  category: '',
+  description: ''
+})
 
 // 计算属性
 const filteredDocuments = computed(() => {
@@ -191,7 +230,7 @@ const filteredDocuments = computed(() => {
   }
   
   if (filterType.value) {
-    result = result.filter(doc => doc.type === filterType.value)
+    result = result.filter(doc => doc.file_category === filterType.value)
   }
   
   return result
@@ -229,23 +268,14 @@ const getFileColor = (type: string) => {
 
 const getTagType = (type: string) => {
   const typeMap: Record<string, string> = {
-    contract: 'primary',
-    legal: 'success',
-    evidence: 'warning',
-    other: 'info'
+    '合同文件': 'primary',
+    '案例资料': 'success',
+    '法律文书': 'warning',
+    '法规法条': 'error'
   }
   return typeMap[type] || 'info'
 }
 
-const getTypeText = (type: string) => {
-  const textMap: Record<string, string> = {
-    contract: '合同文件',
-    legal: '法律文书',
-    evidence: '证据材料',
-    other: '其他'
-  }
-  return textMap[type] || '其他'
-}
 const getStatusTagType = (status: string) => {
   const typeMap: Record<string, string> = {
     'pending': 'info',
@@ -272,12 +302,6 @@ const formatFileSize = (bytes: number) => {
   const sizes = ['B', 'KB', 'MB', 'GB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
-
-const formatDateTime = (dateString: string) => {
-  if (!dateString) return ''
-  const date = new Date(dateString)
-  return date.toLocaleString('zh-CN')
 }
 
 const calculateProgress = (document: any) => {
@@ -418,6 +442,12 @@ const beforeUpload = (file: any) => {
   return true
 }
 
+const handleReset = () => {
+  form.category = ''
+  form.description = ''
+  fileList.value = []
+}
+
 const submitUpload = () => {
   if (!uploadRef.value) return
   const uploadFiles = uploadRef.value.uploadFiles
@@ -447,7 +477,17 @@ const handleUploadError = (error: any, file: any) => {
   ElMessage.error('文件上传失败: ' + (error.message || '网络错误'))
 }
 
+const loadCategories = async () => {
+  try {
+    const response = await request.get(API_CONFIG.ENDPOINTS.DOCUMENT_CATEGORIES.BASE)
+    categories.value = response.document_categories || []
+  } catch (error) {
+    console.error('加载分类失败:', error)
+  }
+}
+
 onMounted(() => {
+  loadCategories()
   refreshDocuments()
 })
 </script>

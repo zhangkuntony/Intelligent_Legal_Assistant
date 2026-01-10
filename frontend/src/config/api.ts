@@ -6,6 +6,10 @@ export const API_CONFIG = {
   
   // API 端点
   ENDPOINTS: {
+    DOCUMENT_CATEGORIES: {
+      BASE: '/api/document-categories',
+      LIST: '/api/document-categories',
+    },
     DOCUMENTS: {
       BASE: '/api/documents',
       UPLOAD: '/api/documents/upload',

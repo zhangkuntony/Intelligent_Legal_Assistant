@@ -29,7 +29,7 @@ class Document(Base):
     filename = Column(String(255), nullable=False)
     file_path = Column(String(500), nullable=False)
     file_size = Column(BigInteger, nullable=False)
-    file_type = Column(String(50), nullable=False)
+    file_category = Column(String(50), nullable=False)         # 关联到 document_category.category_name
     status = Column(String(20), default="processing")  # processing, completed, failed
     processing_error = Column(Text)
     total_chunks = Column(Integer, default=0)

@@ -54,11 +54,6 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/UserPermissions.vue'),
       },
       {
-        path: 'document-upload',
-        name: 'DocumentUpload',
-        component: () => import('@/views/DocumentUpload.vue'),
-      },
-      {
         path: 'document-categories',
         name: 'DocumentCategories',
         component: () => import('@/views/DocumentCategories.vue'),

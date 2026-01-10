@@ -2,7 +2,6 @@
 文档管理API路由
 """
 import hashlib
-import logging
 import time
 from datetime import datetime, timedelta
 
@@ -20,6 +19,7 @@ from ..core.database import get_db
 from ..core.config import settings
 from ..core.security import get_current_user
 from ..models.user import User
+from ..models.document_category import DocumentCategory
 from ..models.document import Document, DocumentEmbedding
 
 router = APIRouter()
@@ -53,7 +53,7 @@ async def get_documents(
                 "title": doc.title,
                 "filename": doc.filename,
                 "file_size": doc.file_size,
-                "file_type": doc.file_type,
+                "file_category": doc.file_category,
                 "status": doc.status,
                 "total_chunks": doc.total_chunks,
                 "processed_chunks": doc.processed_chunks,
@@ -70,6 +70,7 @@ async def get_documents(
 async def upload_document(
         file: UploadFile = File(...),
         title: str = Form(None),
+        file_category: str = Form(None),
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
@@ -116,13 +117,14 @@ async def upload_document(
 
     # 创建文档记录
     document_title = title or Path(file.filename).stem
+    category = file_category or "其他"
     document = Document(
         user_id=current_user.id,
         title=document_title,
         filename=file.filename,
         file_path=str(file_path),
         file_size=file_size,
-        file_type=file.content_type,
+        file_category=category,
         status="uploaded"
     )
 
@@ -347,7 +349,7 @@ async def get_document(
             "title": document.title,
             "filename": document.filename,
             "file_size": document.file_size,
-            "file_type": document.file_type,
+            "file_category": document.file_category,
             "status": document.status,
             "processing_error": document.processing_error,
             "total_chunks": document.total_chunks,

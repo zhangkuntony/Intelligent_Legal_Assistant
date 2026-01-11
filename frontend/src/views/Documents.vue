@@ -128,7 +128,7 @@
         :on-success="handleUploadSuccess"
         :on-error="handleUploadError"
         :before-upload="beforeUpload"
-        :file-list="fileList"
+        :file-list="uploadFileList"
         :auto-upload="false"
         multiple
       >
@@ -147,10 +147,12 @@
         <el-form :model="form" label-width="80px" style="margin-top: 20px;">
           <el-form-item label="文档分类">
             <el-select v-model="form.category" placeholder="请选择分类" style="width: 100%">
-              <el-option label="合同文件" value="contract" />
-              <el-option label="法律文书" value="legal" />
-              <el-option label="案例资料" value="case" />
-              <el-option label="其他文档" value="other" />
+              <el-option 
+                v-for="category in categories" 
+                :key="category.id"
+                :label="category.category_name" 
+                :value="category.category_name" 
+              />
             </el-select>
           </el-form-item>
           <el-form-item label="文档描述">
@@ -179,7 +181,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, UploadUserFile } from 'element-plus'
 import { Document, Folder } from '@element-plus/icons-vue'
 import { API_CONFIG } from '../config/api'
 import { useAuthStore } from '../stores/auth'
@@ -190,7 +192,7 @@ import { formatDateTime } from '../utils/dateTimeUtils'
 const loading = ref(false)
 const showUploadDialog = ref(false)
 const uploading = ref(false)
-const fileList = ref<any[]>([])
+const uploadFileList = ref<UploadUserFile[]>([])
 const uploadRef = ref()
 
 const searchKeyword = ref('')
@@ -238,7 +240,7 @@ const filteredDocuments = computed(() => {
 
 // API配置
 const authStore = useAuthStore()
-const uploadAction = computed(() => `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.DOCUMENTS.UPLOAD}`)
+const uploadAction = computed(() => API_CONFIG.ENDPOINTS.DOCUMENTS.UPLOAD)
 const uploadHeaders = computed(() => ({
   'Authorization': `Bearer ${authStore.token}`
 }))
@@ -445,17 +447,13 @@ const beforeUpload = (file: any) => {
 const handleReset = () => {
   form.category = ''
   form.description = ''
-  fileList.value = []
+  uploadFileList.value = []
 }
 
 const submitUpload = () => {
-  if (!uploadRef.value) return
-  const uploadFiles = uploadRef.value.uploadFiles
-  if (uploadFiles.length === 0) {
-    ElMessage.warning('请选择要上传的文件')
-    return
-  }
-  
+  if (!uploadRef.value) 
+    return;
+
   uploading.value = true
   uploadRef.value.submit()
 }
@@ -467,7 +465,7 @@ const handleUploadSuccess = (response: any, file: any) => {
   } else {
     ElMessage.success('文件上传成功')
     showUploadDialog.value = false
-    fileList.value = []
+    uploadFileList.value = []
     refreshDocuments()
   }
 }

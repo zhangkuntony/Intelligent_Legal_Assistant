@@ -15,6 +15,9 @@ pgvector
 openai
 langchain
 langchain-openai
+langchain-community
+langchain-core
+volcengine-python-sdk
 
 # 文件处理
 PyPDF2>=3.0.0
@@ -38,3 +41,10 @@ pytest
 pytest-asyncio
 black
 isort
+
+# MinIO对象存储
+minio
+
+# Milvus向量数据库
+pymilvus
+langchain-milvus

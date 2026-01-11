@@ -2,6 +2,7 @@
 文档管理API路由
 """
 import hashlib
+import logging
 import time
 from datetime import datetime, timedelta
 
@@ -19,13 +20,21 @@ from ..core.database import get_db
 from ..core.config import settings
 from ..core.security import get_current_user
 from ..models.user import User
-from ..models.document_category import DocumentCategory
 from ..models.document import Document, DocumentEmbedding
+
+from ..services.langchain_processor.unified_processor import UnifiedDocumentProcessor
+from ..services.langchain_processor.retrieval_service import RetrievalService
 
 router = APIRouter()
 
+logger = logging.getLogger(__name__)
+
 # 临时下载令牌存储
 _download_tokens = {}
+
+# 初始化统一处理器（全局单例）
+unified_processor = UnifiedDocumentProcessor()
+retrieval_service = RetrievalService(unified_processor)
 
 
 @router.get("")
@@ -89,6 +98,8 @@ async def upload_document(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="不支持的文件类型，仅支持 PDF、Word、TXT、Markdown 文件"
         )
+
+    logger.info(f"upload {file.filename}")
 
     # 验证文件大小（最大50MB）
     max_size = 50 * 1024 * 1024
@@ -446,7 +457,21 @@ async def delete_document(
             detail="没有权限删除该文档"
         )
 
-    # 删除物理文件
+    try:
+        # 获取MinIO对象名称（从元数据中）
+        minio_object = None
+        if document.meta_data and isinstance(document.meta_data, dict):
+            minio_object = document.meta_data.get("minio_object")
+
+        # 删除Milvus中的向量数据
+        await unified_processor.delete_document_vectors(
+            document_id=str(document.id),
+            minio_object=minio_object
+        )
+    except Exception as e:
+        logger.error(f"删除Milvus向量失败：{str(e)}")
+
+    # 删除本地文件
     if os.path.exists(document.file_path):
         os.remove(document.file_path)
 
@@ -459,10 +484,11 @@ async def delete_document(
 @router.post("/{document_id}/process")
 async def process_document(
         document_id: str,
+        strategy: str = None,
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
-    """处理文档（生成向量嵌入）"""
+    """处理文档（生成向量嵌入）- 使用LangChain集成"""
     result = await db.execute(
         select(Document).where(Document.id == document_id)
     )
@@ -494,23 +520,85 @@ async def process_document(
             detail="文档已处理完成"
         )
 
-    # 这里应该启动异步处理任务
-    # 暂时模拟处理过程
-    document.status = "processing"
-    await db.commit()
+    try:
+        # 更新状态为处理中
+        document.status = "processing"
+        await db.commit()
 
-    # 模拟处理完成
-    # 在实际应用中，这里应该调用异步任务队列
-    document.status = "completed"
-    document.total_chunks = 10  # 模拟分块数量
-    document.processed_chunks = 10
-    await db.commit()
+        # 使用统一处理器处理文档
+        processed_result = await unified_processor.process_document(
+            file_path=document.file_path,
+            strategy=strategy,
+            metadata={
+                'document_id': str(document.id),
+                'user_id': str(current_user.id),
+                'file_category': document.file_category,
+                'title': document.title
+            }
+        )
 
-    return {
-        "message": "文档处理任务已启动",
-        "document_id": str(document.id),
-        "status": document.status
-    }
+        # 更新文档信息
+        if processed_result.status.value == "completed":
+            document.status = "completed"
+            document.total_chunks = processed_result.processing_stats.total_chunks
+            document.processed_chunks = processed_result.processing_stats.total_chunks
+            document.meta_data = processed_result.metadata
+        else:
+            document.status = "failed"
+            document.processing_error = str(processed_result.processing_stats.errors[0])
+
+        await db.commit()
+        await db.refresh(document)
+
+        return {
+            "message": "文档处理完成",
+            "document_id": str(document.id),
+            "status": document.status,
+            "total_chunks": document.total_chunks,
+            "processing_time": processed_result.processing_stats.processing_time,
+            "strategy": strategy or "hybrid"
+        }
+
+    except Exception as e:
+        document.status = "failed"
+        document.processing_error = str(e)
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"文档处理失败: {str(e)}"
+        )
+
+
+@router.post("/search")
+async def search_documents(
+        query: str = Form(...),
+        strategy: str = Form("hybrid"),
+        top_k: int = Form(5),
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """搜索相关文档内容"""
+    try:
+        # 检索相关文档
+        results = await retrieval_service.retrieve(
+            query=query,
+            strategy=strategy,
+            top_k=top_k
+        )
+
+        return {
+            "query": query,
+            "strategy": strategy,
+            "results": results,
+            "total": len(results)
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"搜索失败: {str(e)}"
+        )
+
 
 
 @router.get("/{document_id}/embeddings")

@@ -220,24 +220,25 @@ class QuestionTypeClassifier:
 import openai
 from ..core.config import settings
 
+
 class OpenAIGenerator(BaseQAGenerator):
     """OpenAI生成器"""
-    
+
     def __init__(self, model: str = "gpt-4"):
-        self.client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        self.client = openai.AsyncOpenAI(api_key=settings.LLM_API_KEY)
         self.model = model
         self.prompt_engineer = LegalPromptEngineer()
-    
-    async def generate_answer(self, question: str, 
-                            context_chunks: List[SearchResult],
-                            conversation_history: List[Dict] = None) -> QAResponse:
+
+    async def generate_answer(self, question: str,
+                              context_chunks: List[SearchResult],
+                              conversation_history: List[Dict] = None) -> QAResponse:
         """使用OpenAI生成回答"""
-        
+
         # 构建提示
         prompt = self.prompt_engineer.build_legal_qa_prompt(
             question, context_chunks, conversation_history
         )
-        
+
         try:
             # 调用OpenAI API
             response = await self.client.chat.completions.create(
@@ -247,30 +248,30 @@ class OpenAIGenerator(BaseQAGenerator):
                 max_tokens=1500,
                 top_p=0.9
             )
-            
+
             answer_text = response.choices[0].message.content
-            
+
             # 构建回答响应
             return await self._build_qa_response(
                 question, answer_text, context_chunks
             )
-            
+
         except openai.APIError as e:
             raise QAGenerationError(f"OpenAI API错误: {e}")
-    
+
     async def _build_qa_response(self, question: str, answer: str,
-                               context_chunks: List[SearchResult]) -> QAResponse:
+                                 context_chunks: List[SearchResult]) -> QAResponse:
         """构建问答响应"""
-        
+
         # 提取来源信息
         sources = self._extract_sources(context_chunks)
-        
+
         # 计算置信度
         confidence = self._calculate_confidence(answer, context_chunks)
-        
+
         # 生成建议问题
         suggested_questions = self._generate_suggested_questions(question, answer)
-        
+
         return QAResponse(
             answer=answer,
             confidence=confidence,

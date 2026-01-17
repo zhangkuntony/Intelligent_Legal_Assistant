@@ -341,7 +341,7 @@ const refreshDocuments = async () => {
   if (!token) {
     // 跳转到登录页面
     console.log('未找到token，跳转到登录页面')
-    window.location.href = '/login'
+    globalThis.location.href = '/login'
     return
   }
 
@@ -381,14 +381,14 @@ const downloadDocument = async (doc: any) => {
     })
     
     // 创建下载链接
-    const url = window.URL.createObjectURL(new Blob([response]))
+    const url = globalThis.URL.createObjectURL(new Blob([response]))
     const link = document.createElement('a')
     link.href = url
     link.setAttribute('download', doc.filename)
     document.body.appendChild(link)
     link.click()
     link.remove()
-    window.URL.revokeObjectURL(url)
+    globalThis.URL.revokeObjectURL(url)
     
     ElMessage.success('文档下载成功')
   } catch (error: any) {

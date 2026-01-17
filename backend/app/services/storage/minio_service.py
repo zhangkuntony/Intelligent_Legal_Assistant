@@ -2,11 +2,14 @@
 MinIO对象存储服务
 """
 import logging
-from typing import Optional, Dict, Any
-from pathlib import Path
+from io import BytesIO
+from datetime import timedelta
 
 from minio import Minio
 from minio.error import S3Error
+from pathlib import Path
+from sympy.physics.units import length
+from typing import Optional, Dict, Any
 
 from ...core.config import settings
 
@@ -91,9 +94,8 @@ class MinIOStorageService:
                 'object_name': object_name,
                 'version_id': result.version_id,
                 'etag': result.etag,
-                'size': result.size,
+                'size': length,
                 'last_modified': result.last_modified,
-                'content_type': result.content_type,
                 'presigned_url': self.get_presigned_url(object_name)
             }
 
@@ -125,9 +127,9 @@ class MinIOStorageService:
         self.initialize()
 
         try:
-            from io import BytesIO
-
             logger.info(f"上传字节数据到MinIO：{object_name}")
+            logger.info(f"Content-Type: {content_type}")
+            logger.info(f"Data length: {length}")
 
             # 创建内存中的文件对象
             data_stream = BytesIO(data)
@@ -149,7 +151,7 @@ class MinIOStorageService:
                 'object_name': object_name,
                 'version_id': result.version_id,
                 'etag': result.etag,
-                'size': result.size,
+                'size': length,
                 'last_modified': result.last_modified,
                 'presigned_url': self.get_presigned_url(object_name)
             }
@@ -275,7 +277,7 @@ class MinIOStorageService:
             url = self.client.presigned_get_object(
                 bucket_name=self.bucket_name,
                 object_name=object_name,
-                expires=expires
+                expires=timedelta(seconds=expires)
             )
             return url
         except S3Error as e:

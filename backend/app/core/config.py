@@ -57,8 +57,8 @@ class Settings(BaseSettings):
 
     # MinIO对象存储配置
     MINIO_ENDPOINT: str = "localhost:9000"
-    MINIO_ACCESS_KEY: str = "va8ZocDUUQEfa7WINN4C"
-    MINIO_SECRET_KEY: str = "FV8RAddxMLYgCbdm1exAe0V48yf1N2pKT0flNPtt"
+    MINIO_ACCESS_KEY: str = "uqDog1xApy0KOR0fVwx8"
+    MINIO_SECRET_KEY: str = "xas1b6kc4Wz4G5vgUDKrpOlBsRaQ88MTzkpL9EEa"
     MINIO_SECURE: bool = False  # HTTP模式，生产环境建议HTTPS
     MINIO_BUCKET_NAME: str = "legal-documents"  # 文档存储桶名称
 

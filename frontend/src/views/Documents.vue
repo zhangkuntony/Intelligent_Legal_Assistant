@@ -41,9 +41,15 @@
     </div>
 
     <div class="documents-content">
-      <el-table :data="filteredDocuments" style="width: 100%" v-loading="loading">
+      <el-table 
+        :data="filteredDocuments" 
+        style="width: 100%" 
+        v-loading="loading" 
+        :header-cell-style="{ 'text-align': 'center' }"
+         :cell-style="{ 'text-align': 'center' }"
+      >
         <el-table-column type="selection" width="55" />
-        <el-table-column prop="name" label="文档名称" min-width="200">
+        <el-table-column prop="name" label="文档名称" min-width="200" aligh="left">
           <template #default="{ row }">
             <div class="document-name">
               <el-icon :color="getFileColor(row.type)" style="margin-right: 8px;">
@@ -53,24 +59,24 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="file_type" label="类型" width="120">
+        <el-table-column prop="file_type" label="类型">
           <template #default="{ row }">
             <el-tag :type="getTagType(row.file_category)">
-              {{ row.file_category }}
+              {{ row.file_category_name }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="file_size" label="大小" width="100">
+        <el-table-column prop="file_size" label="大小">
           <template #default="{ row }">
             {{ formatFileSize(row.file_size) }}
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="上传时间" width="180">
+        <el-table-column prop="created_at" label="上传时间">
           <template #default="{ row }">
             {{ formatDateTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="120">
+        <el-table-column prop="status" label="状态">
           <template #default="{ row }">
             <el-tag :type="getStatusTagType(row.status)">
               {{ getStatusText(row.status) }}
@@ -151,7 +157,7 @@
                 v-for="category in categories" 
                 :key="category.id"
                 :label="category.category_name" 
-                :value="category.category_name" 
+                :value="category.category_code" 
               />
             </el-select>
           </el-form-item>
@@ -245,7 +251,8 @@ const uploadHeaders = computed(() => ({
   'Authorization': `Bearer ${authStore.token}`
 }))
 const uploadData = computed(() => ({
-  title: '',        // 可以根据需要添加其他字段
+  file_category: form.category,
+  description: form.description
 }))
 
 const getFileIcon = (type: string) => {
@@ -270,10 +277,10 @@ const getFileColor = (type: string) => {
 
 const getTagType = (type: string) => {
   const typeMap: Record<string, string> = {
-    '合同文件': 'primary',
-    '案例资料': 'success',
-    '法律文书': 'warning',
-    '法规法条': 'error'
+    'contract': 'primary',
+    'case': 'success',
+    'legal': 'warning',
+    'laws': 'error'
   }
   return typeMap[type] || 'info'
 }

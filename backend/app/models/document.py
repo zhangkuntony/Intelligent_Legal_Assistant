@@ -27,6 +27,7 @@ class Document(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     title = Column(String(200), nullable=False)
     filename = Column(String(255), nullable=False)
+    description = Column(String(2000), nullable=False)
     file_path = Column(String(500), nullable=False)             # MinIO对象路径，格式: documents/{user_id}/{uuid}.{ext}
     file_size = Column(BigInteger, nullable=False)
     file_category = Column(String(50), nullable=False)          # 关联到 document_category.category_name

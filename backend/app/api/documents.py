@@ -13,13 +13,14 @@ from fastapi.responses import FileResponse, StreamingResponse
 from io import BytesIO
 from pathlib import Path
 
-from minio import Minio
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
 from ..core.database import get_db
 from ..core.security import get_current_user
+from ..models.document_category import DocumentCategory
 from ..models.user import User
 from ..models.document import Document, DocumentEmbedding
 
@@ -46,33 +47,60 @@ async def get_documents(
         db: AsyncSession = Depends(get_db)
 ):
     print(f"get documents skip: {skip}, limit: {limit}")
-    """获取用户文档列表"""
-    result = await db.execute(
-        select(Document)
+    """获取用户文档列表，使用JOIN关联document_category表"""
+    stmt = (
+        select(
+            Document.id,
+            Document.title,
+            Document.filename,
+            Document.description,
+            Document.file_size,
+            Document.file_category,
+            Document.status,
+            Document.total_chunks,
+            Document.processed_chunks,
+            Document.created_at,
+            Document.updated_at,
+            DocumentCategory.category_name.label("file_category_name")
+        )
+        .outerjoin(DocumentCategory, Document.file_category == DocumentCategory.category_code)
         .where(Document.user_id == current_user.id)
-        .order_by(Document.updated_at.desc())
+        .order_by(Document.created_at.desc())
         .offset(skip)
         .limit(limit)
     )
-    documents = result.scalars().all()
+
+    result = await db.execute(stmt)
+    documents = result.all()
+
+    count_stmt = (
+        select(func.count())
+        .select_from(Document)
+        .where(Document.user_id == current_user.id)
+    )
+    total_result = await db.execute(count_stmt)
+    total = total_result.scalar()
+
+    # 转换为Dict格式
+    result_list = []
+    for doc in documents:
+        result_list.append({
+            "id": str(doc.id),
+            "title": doc.title,
+            "filename": doc.filename,
+            "description": doc.description,
+            "file_size": doc.file_size,
+            "file_category": doc.file_category,
+            "file_category_name": doc.file_category_name,
+            "status": doc.status,
+            "total_chunks": doc.total_chunks,
+            "processed_chunks": doc.processed_chunks,
+            "created_at": doc.created_at,
+            "updated_at": doc.updated_at
+        })
 
     return {
-        "documents": [
-            {
-                "id": str(doc.id),
-                "title": doc.title,
-                "filename": doc.filename,
-                "file_size": doc.file_size,
-                "file_category": doc.file_category,
-                "status": doc.status,
-                "total_chunks": doc.total_chunks,
-                "processed_chunks": doc.processed_chunks,
-                "created_at": doc.created_at,
-                "updated_at": doc.updated_at
-            }
-            for doc in documents
-        ],
-        "total": len(documents)
+        "documents": result_list, "total": total
     }
 
 
@@ -81,6 +109,7 @@ async def upload_document(
         file: UploadFile = File(...),
         title: str = Form(None),
         file_category: str = Form(None),
+        description: str = Form(None),
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
@@ -101,6 +130,8 @@ async def upload_document(
         )
 
     logger.info(f"upload {file.filename}")
+    logger.info(f"文件类型: {file_category}")
+    logger.info(f"文件描述: {description}")
 
     # 读取文件内容
     file_content = await file.read()
@@ -129,7 +160,10 @@ async def upload_document(
             object_name=object_name,
             length=file_size,
             content_type=file_content_type,
-            metadata=None
+            metadata={
+                'user_id': str(current_user.id),
+                'file_category': file_category
+            }
         )
 
         logger.info(f"文件上传到MinIO成功: {object_name}")
@@ -144,11 +178,13 @@ async def upload_document(
             file_path=object_name,
             file_size=file_size,
             file_category=category,
+            description=description,
             status="pending",
             meta_data={
                 'minio_bucket': upload_result['bucket_name'],
                 'minio_object': upload_result['object_name'],
                 'minio_etag': upload_result['etag'],
+                'file_category': file_category,
                 'presigned_url': upload_result['presigned_url'],
                 'content_type': file_content_type
             }
@@ -168,6 +204,7 @@ async def upload_document(
                 "filename": document.filename,
                 "file_size": document.file_size,
                 "file_category": document.file_category,
+                "description": document.description,
                 "status": document.status,
                 "created_at": document.created_at,
                 "download_url": upload_result['presigned_url']
@@ -393,6 +430,7 @@ async def get_document(
             "id": str(document.id),
             "title": document.title,
             "filename": document.filename,
+            "description": document.description,
             "file_size": document.file_size,
             "file_category": document.file_category,
             "status": document.status,
@@ -427,6 +465,7 @@ async def get_document(
 async def update_document(
         document_id: str,
         title: str = None,
+        description: str = None,
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
@@ -453,6 +492,9 @@ async def update_document(
     if title is not None:
         document.title = title
 
+    if description is not None:
+        document.description = description
+
     await db.commit()
     await db.refresh(document)
 
@@ -461,6 +503,7 @@ async def update_document(
         "document": {
             "id": str(document.id),
             "title": document.title,
+            "description": document.description,
             "updated_at": document.updated_at
         }
     }

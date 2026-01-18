@@ -124,30 +124,88 @@ class MilvusVectorStore:
             raise ValueError("embeddings, contents和chunk_indices长度必须一致")
 
         try:
+            # 类型检查和转换
+            logger.info(f"document_id类型: {type(document_id)}, 值: {document_id}")
+
+            # 如果document_id是列表，取第一个元素
+            if isinstance(document_id, list):
+                logger.warning(f"document_id是列表类型，将使用第一个元素: {document_id}")
+                document_id = document_id[0] if document_id else ""
+
+            # 确保document_id是字符串
+            document_id = str(document_id)
+
+            # 递归清理metadata的函数，确保所有键都是字符串
+            def clean_metadata_keys(obj):
+                """递归地将字典中的所有键转换为字符串"""
+                if isinstance(obj, dict):
+                    cleaned = {}
+                    for key, value in obj.items():
+                        # 将键转换为字符串
+                        new_key = str(key)
+                        # 递归处理值
+                        cleaned[new_key] = clean_metadata_keys(value)
+                    return cleaned
+                elif isinstance(obj, list):
+                    # 递归处理列表中的每个元素
+                    return [clean_metadata_keys(item) for item in obj]
+                else:
+                    # 基本类型，直接返回
+                    return obj
+
             # 准备数据
             ids = []
-            data = {
-                "document_id": [document_id] * len(embeddings),
-                "chunk_index": chunk_indices,
-                "content": contents,
-                "embedding": embeddings,
-            }
+            doc_ids = []
+            indices = []
+            content_list = []
+            metadata_list = []
 
-            # 生成唯一ID
             for i in range(len(embeddings)):
                 chunk_id = f"{document_id}_{chunk_indices[i]}"
                 ids.append(chunk_id)
+                doc_ids.append(document_id)
+                indices.append(chunk_indices[i])
+                content_list.append(contents[i])
+                # 处理metadata
+                if metadata and i < len(metadata):
+                    meta = metadata[i]
+                    # 调试：打印metadata的内容
+                    if i == 0:
+                        logger.info(f"第一个metadata的内容: {meta}")
+                        logger.info(f"第一个metadata的类型: {type(meta)}")
+                        logger.info(f"第一个metadata的键: {meta.keys() if isinstance(meta, dict) else 'N/A'}")
 
-            data["id"] = ids
+                    # 使用递归清理metadata
+                    if isinstance(meta, dict):
+                        cleaned_meta = clean_metadata_keys(meta)
+                        # 检查是否有非字符串键被转换
+                        if i == 0:
+                            logger.info(f"清理后的第一个metadata: {cleaned_meta}")
+                        metadata_list.append(cleaned_meta)
+                    else:
+                        logger.warning(f"metadata不是字典类型: {type(meta)}, 使用空字典")
+                        metadata_list.append({})
+                else:
+                    metadata_list.append({})
 
-            # 添加元数据
-            if metadata:
-                data["metadata"] = metadata
-            else:
-                data["metadata"] = [{} for _ in range(len(embeddings))]
+            # 构造插入数据 - 明确使用列表格式
+            data = [
+                {
+                    "id": ids[i],
+                    "document_id": doc_ids[i],
+                    "chunk_index": indices[i],
+                    "content": content_list[i],
+                    "embedding": embeddings[i],
+                    "metadata": metadata_list[i]
+                }
+                for i in range(len(embeddings))
+            ]
+
+            logger.info(f"准备插入 {len(data)} 条记录")
+            logger.info(f"第一条记录的document_id类型: {type(data[0]['document_id'])}")
+            logger.info(f"第一条记录的metadata类型: {type(data[0]['metadata'])}")
 
             # 插入数据
-            logger.info(f"插入{len(embeddings)}个向量到Milvus")
             insert_result = self.collection.insert(data)
 
             # 刷新以确保数据持久化
@@ -159,6 +217,9 @@ class MilvusVectorStore:
 
         except Exception as e:
             logger.error(f"插入向量失败:{str(e)}")
+            logger.error(f"document_id: {document_id}, 类型: {type(document_id)}")
+            logger.error(f"embeddings长度: {len(embeddings)}, 类型: {type(embeddings)}")
+            logger.error(f"chunk_indices类型: {type(chunk_indices)}")
             raise
 
     def search_similar(
@@ -241,6 +302,9 @@ class MilvusVectorStore:
         self.initialize()
 
         try:
+            # 加载集合到内存
+            self.collection.load()
+
             # 构建删除表达式
             expr = f'document_id == "{document_id}"'
 

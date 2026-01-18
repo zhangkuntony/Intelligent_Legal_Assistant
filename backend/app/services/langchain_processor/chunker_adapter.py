@@ -107,10 +107,24 @@ class LegalChunkerAdapter(BaseChunkerAdapter):
         # 使用LegalDocumentChunker分割
         chunks = self.legal_chunker.chunk_text(text)
 
-        # 合并元数据
+        # 合并元数据（包括图片信息）
         for chunk in chunks:
             if metadata:
                 chunk.metadata.update(metadata)
+
+            # 检查是否有图片信息，并关联到分块
+            if metadata and metadata.get('has_images'):
+                images_by_page = metadata.get('images_by_page', {})
+                page_number = chunk.metadata.get('page_number')
+
+                if page_number and page_number in images_by_page:
+                    # 将该页面的所有图片URL添加到分块metadata
+                    page_images = images_by_page[page_number]
+                    image_urls = [img['image_url'] for img in page_images]
+
+                    if image_urls:
+                        chunk.metadata['image_urls'] = image_urls
+                        chunk.metadata['primary_image-url'] = image_urls[0]     # 主要图片URL
 
         return chunks
 

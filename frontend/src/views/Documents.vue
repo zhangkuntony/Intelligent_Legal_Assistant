@@ -81,15 +81,6 @@
             <el-tag :type="getStatusTagType(row.status)">
               {{ getStatusText(row.status) }}
             </el-tag>
-            <div v-if="row.status === 'processing'" class="progress-info">
-              <el-progress 
-                :percentage="calculateProgress(row)" 
-                :show-text="false" 
-                size="small"
-                style="width: 60px; margin-left: 8px;"
-              />
-              <span class="progress-text">{{ row.processed_chunks }}/{{ row.total_chunks }}</span>
-            </div>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="250">
@@ -100,8 +91,14 @@
             <el-button link type="primary" @click="downloadDocument(row)">
               下载
             </el-button>
-            <el-button link type="primary" @click="analyzeDocument(row)" :disabled="row.status !== 'processed'">
-              分析
+            <el-button 
+              link 
+              type="primary" 
+              @click="analyzeDocument(row)" 
+              :disabled="row.status === 'processing' || row.status === 'processed'"
+              :loading="row.status === 'processing'"
+            >
+              {{ row.status === 'processing' ? '处理中...' : '分析' }}
             </el-button>
             <el-button link type="danger" @click="deleteDocument(row)">
               删除
@@ -404,13 +401,84 @@ const downloadDocument = async (doc: any) => {
   }
 }
 
-const analyzeDocument = (doc: any) => {
-  if (doc.status !== 'processed') {
-    ElMessage.warning('文档尚未处理完成，无法分析')
+const analyzeDocument = async (doc: any) => {
+  if (doc.status === 'processing') {
+    ElMessage.warning('文档正在处理中，请稍后')
     return
   }
-  ElMessage.info(`开始分析文档: ${doc.filename}`)
-  // TODO: 实现文档分析功能
+
+  if (doc.status === 'processed') {
+    ElMessage.warning('文档已处理完成')
+    return
+  }
+
+  try {
+    ElMessage.info(`开始分析文档: ${doc.filename}`)
+    // 调用后端处理接口
+    await request.post(`${API_CONFIG.ENDPOINTS.DOCUMENTS.BASE}/${doc.id}/process`)
+    ElMessage.success('文档处理已开始')
+
+    // 开始轮询文档状态
+    pollDocumentStatus(doc.id)
+  } catch (error: any) {
+    console.error('处理文档失败:', error)
+    ElMessage.error('处理文档失败: ' + (error.response?.data?.message || error.message))
+
+    // 刷新文档列表，获取最新状态
+    await refreshDocuments()
+  }  
+}
+
+// 轮询文档状态
+const pollDocumentStatus = async (documentId: string) => {
+  const maxAttempts = 60    // 最多轮询60次（约5分钟）
+  let attempts = 0
+
+  const poll = async () => {
+    try {
+      attempts++
+
+      if (attempts > maxAttempts) {
+        ElMessage.error('文档处理超时，请稍后查看')
+        await refreshDocuments()
+        return
+      }
+
+      // 获取文档详情
+      const response = await request.get(`${API_CONFIG.ENDPOINTS.DOCUMENTS.BASE}/${documentId}`)
+      const document = response.document
+
+      // 更新本地文档列表中的状态
+      const docIndex = documents.value.findIndex(d => d.id === documentId)
+      if (docIndex !== -1) {
+        documents.value[docIndex] = {
+          ...documents.value[docIndex],
+          status: document.status,
+          processed_chunks: document.processed_chunks,
+          total_chunks: document.total_chunks
+        }
+      }
+
+      // 检查处理状态
+      if (document.status === 'processed') {
+        ElMessage.success(`文档处理完成`)
+        return
+      } else if (document.status === 'error' || document.status === 'failed') {
+        ElMessage.error(`文档处理失败: ${document.processing_error || '未知错误'}`)
+        return
+      }
+
+      // 继续轮询
+      setTimeout(() => poll(), 5000)        // 每5秒轮询一次
+    } catch(error) {
+      console.error('轮询文档状态失败:', error)
+      // 出错后继续轮询
+      setTimeout(() => poll(), 5000)
+    }
+  }
+
+  // 开始轮询
+  setTimeout(() => poll(), 2000)  // 2秒后开始
 }
 
 const deleteDocument = async (doc: any) => {

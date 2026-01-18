@@ -74,16 +74,36 @@ class UnifiedDocumentProcessor:
 
             extracted_text = await processor.extract_text(file_path)
 
+            # 1.5 提取并上传图片
+            logger.info("提取并上传图片")
+            document_id = metadata.get('document_id') if metadata else None
+            images_by_page = {}
+
+            if hasattr(processor, 'extract_images_with_upload') and document_id:
+                images_by_page = await processor.extract_images_with_upload(file_path, document_id)
+                logger.info(f"提取到 {sum(len(imgs) for imgs in images_by_page.values())} 张图片")
+            else:
+                logger.info("当前处理器不支持图片提取或未提供document_id")
+
             # 2. 预处理文本
             logger.info("步骤2：预处理文本")
             preprocessed_text = await processor.preprocess_text(extracted_text)
 
-            # 3. 分块处理
+            # 3. 分块处理（传递图片信息）
             logger.info("步骤3：分块处理")
+
+            # 将图片信息添加到metadata中
+            chunk_metadata = metadata.copy() if metadata else {}
+            if images_by_page:
+                chunk_metadata['images_by_page'] = images_by_page
+                chunk_metadata['has_images'] = True
+            else:
+                chunk_metadata['has_images'] = False
+
             chunks = await self.chunker_adapter.chunk_document(
                 text=preprocessed_text,
                 strategy=strategy or self.config.get('default_strategy', 'hybrid'),
-                metadata=metadata or {}
+                metadata=chunk_metadata
             )
 
             # 4. 生成向量嵌入
@@ -142,17 +162,50 @@ class UnifiedDocumentProcessor:
             向量列表
         """
         try:
-            # 批量生成嵌入
-            texts = [chunk.content for chunk in chunks]
-            resp = self.ark_client.embeddings.create(
-                model=self.config.get('embedding_model', 'doubao-embedding-text-240715'),
-                input=texts,
-            )
+            model_name = settings.EMBEDDING_MODEL
+            logger.info(f"使用embedding模型: {model_name}")
+            logger.info(f"要处理文本数量: {len(chunks)}")
 
-            embeddings = [item.embedding for item in resp.data]
+            embeddings = []
+
+            # 为每个chunk单独生成embedding
+            for idx, chunk in enumerate(chunks):
+                # 构造文本输入对象
+                text_input = {
+                    "text": chunk.content,
+                    "type": "text"
+                }
+
+                inputs = [text_input]
+
+                # 检查是否有图片信息（从metadata中）
+                if chunk.metadata and 'image_url' in chunk.metadata:
+                    # 为每张图片添加image_url输入
+                    for image_url in chunk.metadata['image_urls']:
+                        inputs.append({
+                            "image_url": {"url": image_url},
+                            "type": "image_url"
+                        })
+
+                logger.info(f"处理第{idx + 1}/{len(chunks)}个chunk，输入数量: {len(inputs)}")
+
+                # 调用embedding API（为每个chunk单独调用）
+                resp = self.ark_client.multimodal_embeddings.create(
+                    model=model_name,
+                    input=inputs
+                )
+
+                # 将结果添加到embedding列表
+                embedding = resp.data.embedding
+                embeddings.append(embedding)
+                logger.info(f"第{idx + 1}个chunk的embedding维度: {len(embedding)}")
+
+            logger.info(f"成功生成 {len(embeddings)} 个向量")
             return embeddings
         except Exception as e:
             logger.error(f"生成嵌入失败：{str(e)}")
+            logger.error(f"当前使用的模型: {self.config.get('embedding_model')}")
+            logger.error(f"输入数量: {len(chunks)}")
             raise
 
     async def _store_vectors(
@@ -176,25 +229,7 @@ class UnifiedDocumentProcessor:
             if not document_id:
                 raise ValueError("元数据中必须包含document_id")
 
-            # 步骤1：上传源文件到MinIO
-            logger.info(f"上传源文件到MinIO：{file_path}")
-
-            file_path_obj = Path(file_path)
-            object_name = f"documents/{document_id}/{file_path_obj.name}"
-
-            # 上传文件到MinIO
-            upload_result = await minio_service.upload(
-                file_path=file_path,
-                object_name=object_name,
-                metadata={
-                    'document_id': document_id,
-                    'title': metadata.get('title', ''),
-                    'file_category': metadata.get('file_category', ''),
-                }
-            )
-            logger.info(f"文件上传成功：{upload_result['object_name']}")
-
-            # 步骤2：将向量嵌入存储到Milvus
+            # 将向量嵌入存储到Milvus
             logger.info(f"存储{len(embeddings)}个向量到Milvus")
 
             # 准备数据
@@ -203,7 +238,7 @@ class UnifiedDocumentProcessor:
             chunk_metadata = [chunk.metadata for chunk in chunks]
 
             # 插入向量
-            inserted_ids = await milvus_store.insert_documents(
+            inserted_ids = milvus_store.insert_embeddings(
                 embeddings=embeddings,
                 contents=contents,
                 document_id=document_id,
@@ -213,14 +248,15 @@ class UnifiedDocumentProcessor:
 
             logger.info(f"向量存储成功：{len(inserted_ids)}个")
 
-            # 步骤3：更新元数据，包含MinIO对象信息
+            # 更新元数据，包含MinIO对象信息
             metadata.update({
-                'minio_bucket': upload_result['bucket_name'],
-                'minio_object': upload_result['object_name'],
-                'minio_etag': upload_result['etag'],
                 'milvus_collection': self.config.get('collection_name', 'legal_documents'),
                 'vector_count': len(embeddings),
             })
+
+            # 如果metadata中包含MinIO信息，记录到日志
+            if 'minio_object' in metadata:
+                logger.info(f"MinIO对象: {metadata.get('minio_bucket', 'unknown')}/{metadata['minio_object']}")
 
             logger.info("向量存储和文件上传完成")
 
@@ -299,11 +335,11 @@ class UnifiedDocumentProcessor:
             logger.info(f"删除文档向量: document_id={document_id}")
 
             # 从Milvus删除向量
-            await milvus_store.delete_by_document(document_id)
+            milvus_store.delete_by_document(document_id)
 
             # 从MinIO删除文件
             if minio_object:
-                await minio_service.delete_file(minio_object)
+                minio_service.delete_file(minio_object)
 
             logger.info(f"文档向量删除成功: document_id={document_id}")
 

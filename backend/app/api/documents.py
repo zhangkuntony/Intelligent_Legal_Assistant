@@ -18,6 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from urllib.parse import quote
+
+from ..core.config import settings
 from ..core.database import get_db
 from ..core.security import get_current_user
 from ..models.document_category import DocumentCategory
@@ -306,11 +309,17 @@ async def download_document_direct(
         file_stream = BytesIO(file_content)
         content_type = document.meta_data.get('content_type', 'application/octet-stream') if document.meta_data else 'application/octet-stream'
 
+        # 处理文件名编码，支持中文
+        filename_encoded = quote(document.filename, safe='')
+        content_disposition = f"attachment; filename*=UTF-8''{filename_encoded}"
+
+        logger.info(f"Content-Disposition: {content_disposition}")
+
         return StreamingResponse(
             file_stream,
             media_type=content_type,
             headers={
-                "Content-Disposition": f"attachment; filename={document.filename}",
+                "Content-Disposition": content_disposition,
                 "Content-Length": str(len(file_content)),
             }
         )
@@ -552,8 +561,18 @@ async def delete_document(
 
         # 步骤2：从MinIO删除文件
         try:
+            # 删除PDF文件本身
             minio_service.delete_file(document.file_path)
             logger.info(f"MinIO文件删除成功: {document.file_path}")
+
+            # 删除PDF提取的图片(如果存在), 图片保存咋documents/{document_id}/images/下
+            image_prefix = f"documents/{document.id}/images/"
+            try:
+                deleted_images = minio_service.delete_directory(image_prefix)
+                logger.info(f"MinIO图片目录删除成功: {image_prefix}, 删除了 {deleted_images} 个图片")
+            except Exception as e:
+                # 图片删除失败不影响主要流程
+                logger.warning(f"删除MinIO图片目录失败: {str(e)}")
         except Exception as e:
             logger.error(f"删除MinIO文件失败: {str(e)}")
 
@@ -638,7 +657,9 @@ async def process_document(
                 'document_id': str(document.id),
                 'user_id': str(current_user.id),
                 'file_category': document.file_category,
-                'title': document.title
+                'title': document.title,
+                'minio_object': document.file_path,
+                'minio_bucket': settings.MINIO_BUCKET_NAME
             }
         )
 

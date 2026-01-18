@@ -1,7 +1,0 @@
-localhost:9000
-
-Access Key:
-uqDog1xApy0KOR0fVwx8
-
-Secret Key:
-xas1b6kc4Wz4G5vgUDKrpOlBsRaQ88MTzkpL9EEa

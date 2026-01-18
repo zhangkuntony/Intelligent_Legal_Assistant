@@ -6,6 +6,7 @@ from io import BytesIO
 from datetime import timedelta
 
 from minio import Minio
+from minio.deleteobjects import DeleteObject
 from minio.error import S3Error
 from pathlib import Path
 from sympy.physics.units import length
@@ -257,6 +258,52 @@ class MinIOStorageService:
         except S3Error as e:
             logger.error(f"文件删除失败: {str(e)}")
             raise
+
+    def delete_directory(self, prefix: str, recursive: bool = True) -> int:
+        """
+        删除MinIO中的目录及其内容
+
+        Args:
+            prefix: 对象前缀（目录路径）
+            recursive: 是否递归删除子目录
+
+        Returns:
+            删除的对象数量
+        """
+        self.initialize()
+
+        try:
+            logger.info(f"删除MinIO目录: {prefix}")
+
+            # 列出所有匹配的对象
+            objects_list = list(self.client.list_objects(
+                bucket_name=self.bucket_name,
+                prefix=prefix,
+                recursive=recursive
+            ))
+
+            if not objects_list:
+                logger.info(f"目录为空或不存在: {prefix}")
+                return 0
+
+            # 获取对象列表并创建删除列表
+            delete_objects_list = [DeleteObject(obj.object_name) for obj in objects_list]
+
+            # 删除所有对象
+            result = self.client.remove_objects(
+                bucket_name=self.bucket_name,
+                delete_object_list=delete_objects_list
+            )
+
+            delete_count = len(list(result))
+            logger.info(f"目录删除成功: {prefix}, 删除了 {delete_count} 个对象")
+
+            return delete_count
+
+        except S3Error as e:
+            logger.error(f"删除目录失败: {str(e)}")
+            raise
+
 
     def get_presigned_url(
             self,

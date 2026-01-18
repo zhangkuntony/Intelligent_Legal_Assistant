@@ -41,8 +41,8 @@ class Settings(BaseSettings):
     LLM_API_KEY: Optional[str] = "d5ef8378-b9b6-4c76-98ee-c55ebda4954d"
     LLM_BASE_URL: Optional[str] = "https://ark.cn-beijing.volces.com/api/v3"
     LLM_MODEL: str = "doubao-1-5-pro-32k-250115"
-    EMBEDDING_MODEL_URL: Optional[str] = "https://ark.cn-beijing.volces.com/api/v3/embeddings"
-    EMBEDDING_MODEL: str = "doubao-embedding-text-240715"
+    EMBEDDING_MODEL_URL: Optional[str] = "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal"
+    EMBEDDING_MODEL: str = "doubao-embedding-vision-250615"
 
     # 向量检索配置
     VECTOR_SEARCH_TOP_K: int = 5  # 检索最相似的5个文档块

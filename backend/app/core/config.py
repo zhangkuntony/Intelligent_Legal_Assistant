@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     ALLOWED_FILE_TYPES: List[str] = [".pdf", ".doc", ".docx", ".txt"]
 
     # AI服务配置
-    LLM_API_KEY: Optional[str] = "d5ef8378-b9b6-4c76-98ee-c55ebda4954d"
+    LLM_API_KEY: Optional[str] = "Your_LLM_API_Key"
     LLM_BASE_URL: Optional[str] = "https://ark.cn-beijing.volces.com/api/v3"
     LLM_MODEL: str = "doubao-1-5-pro-32k-250115"
     EMBEDDING_MODEL_URL: Optional[str] = "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal"

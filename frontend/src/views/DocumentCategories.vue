@@ -13,11 +13,11 @@
       </template>
       
       <el-table :data="categoryList" style="width: 100%" v-loading="loading">
-        <el-table-column prop="category_name" label="分类名称" />
-        <el-table-column prop="category_code" label="分类代码" />
-        <el-table-column prop="description" label="描述" />
-        <el-table-column prop="document_count" label="文档数" />
-        <el-table-column prop="created_at" label="创建时间">
+        <el-table-column prop="category_name" label="分类名称" min-width="15%" align="center" />
+        <el-table-column prop="category_code" label="分类代码" min-width="15%" align="center" />
+        <el-table-column prop="description" label="描述" min-width="45%" header-align="center" align="left" />
+        <el-table-column prop="document_count" label="文档数" min-width="15%" align="center" />
+        <el-table-column prop="created_at" label="创建时间" min-width="10%" align="center">
           <template #default="scope">
             {{ formatDateTime(scope.row.created_at) }}
           </template>

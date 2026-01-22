@@ -7,5 +7,16 @@ MinIO:
     Secret Key:
     xas1b6kc4Wz4G5vgUDKrpOlBsRaQ88MTzkpL9EEa
 
+
+MinIO (公司环境):
+    http://localhost:9000
+
+    Access Key:
+    x3uXvINjX4NFMbS0nRsk
+
+    Secret Key:
+    RaQnPLpjGLsDYWFzO2gjraoGTi9pg6Ps7I2oYldp
+
+
 Milvus:
     http://localhost:9091/webui/

@@ -255,9 +255,9 @@ const uploadData = computed(() => ({
 const getFileIcon = (type: string) => {
   const iconMap: Record<string, any> = {
     contract: Document,
-    legal: Document,
-    evidence: Folder,
-    other: Folder
+    case: Document,
+    legal: Folder,
+    laws: Folder
   }
   return iconMap[type] || Document
 }
@@ -265,9 +265,9 @@ const getFileIcon = (type: string) => {
 const getFileColor = (type: string) => {
   const colorMap: Record<string, string> = {
     contract: '#409EFF',
-    legal: '#67C23A',
-    evidence: '#E6A23C',
-    other: '#909399'
+    case: '#67C23A',
+    legal: '#E6A23C',
+    laws: '#909399'
   }
   return colorMap[type] || '#909399'
 }

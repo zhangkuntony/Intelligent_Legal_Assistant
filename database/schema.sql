@@ -67,6 +67,16 @@ CREATE TABLE documents (
     description VARCHAR(2000)
 );
 
+-- 文档分类表
+CREATE TABLE document_category (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    category_name VARCHAR(50) NOT NULL,
+    category_code VARCHAR(50) NOT NULL,
+    description VARCHAR(200),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 文档向量表（使用pgvector扩展）
 CREATE TABLE document_embeddings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -101,6 +111,11 @@ CREATE INDEX idx_documents_status ON documents(status);
 CREATE INDEX idx_documents_created_at ON documents(created_at)
     WITH (fillfactor=100, deduplicate_items=True);
 
+-- 文档分类表索引
+CREATE INDEX idx_document_category_code ON document_category(category_code);
+CREATE INDEX idx_document_category_name ON document_category(category_name);
+CREATE INDEX idx_document_category_created_at ON document_category(created_at);
+
 -- 向量表索引（pgvector专用）
 CREATE INDEX idx_document_embeddings_document_id ON document_embeddings(document_id);
 CREATE INDEX idx_document_embeddings_embedding ON document_embeddings USING ivfflat (embedding vector_cosine_ops)
@@ -125,6 +140,9 @@ CREATE TRIGGER update_conversations_updated_at BEFORE UPDATE ON conversations
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_documents_updated_at BEFORE UPDATE ON documents
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_document_category_updated_at BEFORE UPDATE ON document_category
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- 对话标题自动生成函数
@@ -196,6 +214,13 @@ INSERT INTO users (username, email, password_hash, full_name) VALUES
 INSERT INTO conversations (user_id, title) VALUES
 ((SELECT id FROM users WHERE username = 'testuser'), '劳动合同相关问题咨询');
 
+-- 插入文档分类初始数据
+INSERT INTO document_category (category_name, category_code, description) VALUES
+('合同文件', 'contract', '各类合同文件，包括劳动合同、租赁合同、买卖合同等'),
+('案例资料', 'case', '法律案例资料，包括法院判决、仲裁裁决等'),
+('法律文书', 'legal', '各类法律文书，包括起诉状、答辩状、申请书等'),
+('法规法条', 'laws', '法律法规条文，包括法律、法规、规章等');
+
 -- 插入测试消息
 INSERT INTO messages (conversation_id, role, content) VALUES
 ((SELECT id FROM conversations WHERE title = '劳动合同相关问题咨询'), 'user', '您好，我想咨询关于劳动合同解除的相关法律规定。'),
@@ -212,7 +237,11 @@ COMMENT ON TABLE users IS '系统用户表，存储用户认证信息';
 COMMENT ON TABLE conversations IS '用户对话会话表，记录每次对话的基本信息';
 COMMENT ON TABLE messages IS '对话消息表，存储用户和AI的对话内容';
 COMMENT ON TABLE documents IS '知识库文档表，管理用户上传的法律文档';
+COMMENT ON TABLE document_category IS '文档分类表，管理文档的分类信息';
 COMMENT ON TABLE document_embeddings IS '文档向量表，存储文档分块的向量化表示';
+
+-- 设置表所有者
+ALTER TABLE document_category OWNER TO legal_assistant;
 
 -- 设置表所有者
 ALTER TABLE documents OWNER TO legal_assistant;

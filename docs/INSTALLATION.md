@@ -405,72 +405,73 @@ docker run hello-world
 
 ## 4. PostgreSQL数据库安装
 
-本项目使用Docker部署PostgreSQL数据库，包含pgvector扩展。
+本项目提供独立的PostgreSQL安装配置，包含pgvector扩展支持。
 
-### 4.1 创建数据库Docker配置
+### 4.1 使用独立Docker Compose安装
 
-项目已包含 `docker-compose.yml` 文件，其中PostgreSQL配置如下：
+项目已包含独立的PostgreSQL配置文件 `installation/pgvector/docker-compose.yml`。
 
-```yaml
-postgres:
-  image: pgvector/pgvector:pg16
-  container_name: legal_assistant_db
-  environment:
-    POSTGRES_DB: legal_assistant
-    POSTGRES_USER: legal_assistant
-    POSTGRES_PASSWORD: legal_assistant_password
-  ports:
-    - "5432:5432"
-  volumes:
-    - postgres_data:/var/lib/postgresql/data
-    - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
-  networks:
-    - legal_network
-  healthcheck:
-    test: ["CMD-SHELL", "pg_isready -U legal_assistant -d legal_assistant"]
-    interval: 30s
-    timeout: 10s
-    retries: 3
-```
+**配置说明**：
+- 镜像：`pgvector/pgvector:pg16`（PostgreSQL 16 + pgvector扩展）
+- 数据库名：`legal_assistant`
+- 用户名：`legal_assistant`
+- 密码：`legal_assistant_123456`
+- 端口：`5432`
 
 ### 4.2 启动PostgreSQL
 
-#### 方法一：使用docker-compose启动（推荐）
+#### 使用独立的docker-compose文件启动
 
 ```bash
-# 进入项目根目录
-cd /path/to/Intelligent_Legal_Assistant
+# 进入PostgreSQL安装目录
+cd installation/pgvector
 
 # 启动PostgreSQL服务
-docker-compose up -d postgres
+docker-compose up -d
 
 # 查看容器状态
 docker-compose ps
 
 # 查看日志
-docker-compose logs postgres
+docker-compose logs -f
 ```
 
-#### 方法二：使用docker命令启动
+#### 启动成功输出示例
+
+```
+Creating network "pgvector_legal_network" with the default driver
+Creating legal_assistant_db ... done
+```
+
+### 4.3 初始化数据库
+
+**重要**：PostgreSQL容器启动后，需要手动执行数据库初始化脚本。
 
 ```bash
-# 创建数据卷
-docker volume create postgres_data
+# 确保已在项目根目录（如果不是，请先返回根目录）
+cd ../..  # 从 installation/pgvector 返回项目根目录
 
-# 启动PostgreSQL容器
-docker run -d \
-  --name legal_assistant_db \
-  -e POSTGRES_DB=legal_assistant \
-  -e POSTGRES_USER=legal_assistant \
-  -e POSTGRES_PASSWORD=legal_assistant_password \
-  -p 5432:5432 \
-  -v postgres_data:/var/lib/postgresql/data \
-  -v $(pwd)/database:/docker-entrypoint-initdb.d \
-  --network legal_network \
-  pgvector/pgvector:pg16
+# 执行数据库schema初始化脚本
+docker exec -i legal_assistant_db psql -U legal_assistant -d legal_assistant < database/schema.sql
+
+# 验证表已创建
+docker exec legal_assistant_db psql -U legal_assistant -d legal_assistant -c "\dt"
+
+# 应看到以下表:
+# users, conversations, messages, documents, document_embeddings
 ```
 
-### 4.3 验证PostgreSQL安装
+**初始化成功输出示例**：
+```
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE INDEX
+```
+
+### 4.4 验证PostgreSQL安装
 
 ```bash
 # 检查容器状态
@@ -488,23 +489,13 @@ docker exec -it legal_assistant_db psql -U legal_assistant -d legal_assistant
 \dt                    # 列出所有表
 \dx                    # 查看已安装的扩展
 
+# 应该看到pgvector扩展
+#  extname | extversion
+# ---------+-----------
+#  vector  | 0.x.x
+
 # 退出psql
 \q
-```
-
-### 4.4 手动初始化数据库（如需要）
-
-如果自动初始化脚本未执行，可以手动运行：
-
-```bash
-# 连接到数据库
-docker exec -it legal_assistant_db psql -U legal_assistant -d legal_assistant
-
-# 执行schema.sql
-\i /docker-entrypoint-initdb.d/schema.sql
-
-# 或在主机上执行
-docker exec -i legal_assistant_db psql -U legal_assistant -d legal_assistant < database/schema.sql
 ```
 
 ### 4.5 PostgreSQL常用操作
@@ -516,124 +507,116 @@ docker exec legal_assistant_db pg_dump -U legal_assistant legal_assistant > back
 # 恢复数据库
 cat backup.sql | docker exec -i legal_assistant_db psql -U legal_assistant legal_assistant
 
+# 查看数据库日志
+docker logs legal_assistant_db -f
+
 # 停止数据库
-docker-compose stop postgres
+cd installation/pgvector
+docker-compose stop
 
 # 启动数据库
-docker-compose start postgres
+docker-compose start
 
 # 重启数据库
-docker-compose restart postgres
+docker-compose restart
 
 # 删除数据库容器和数据（谨慎使用！）
 docker-compose down -v
+
+# 重新创建数据库（会删除所有数据）
+docker-compose down -v
+docker-compose up -d
 ```
+
+### 4.6 连接配置
+
+在项目的 `.env` 文件中配置PostgreSQL连接：
+
+```bash
+# PostgreSQL数据库连接字符串
+DATABASE_URL=postgresql+asyncpg://legal_assistant:legal_assistant_123456@localhost:5432/legal_assistant
+```
+
+### 4.7 使用图形化管理工具
+
+可以使用以下工具连接数据库：
+
+#### pgAdmin
+- Host: `localhost`
+- Port: `5432`
+- Database: `legal_assistant`
+- Username: `legal_assistant`
+- Password: `legal_assistant_123456`
+
+#### DBeaver
+- Driver: PostgreSQL
+- Host: `localhost`
+- Port: `5432`
+- Database: `legal_assistant`
+- Username: `legal_assistant`
+- Password: `legal_assistant_123456`
 
 ---
 
 ## 5. Milvus向量数据库安装
 
-本项目使用Docker部署Milvus向量数据库。Milvus是高性能向量数据库，用于存储和检索文档的向量嵌入。
+本项目提供独立的Milvus向量数据库安装配置。Milvus是高性能向量数据库，用于存储和检索文档的向量嵌入。
 
-### 5.1 创建Milvus Docker Compose配置
+### 5.1 使用独立Docker Compose安装
 
-创建文件 `docker-compose.milvus.yml`：
+项目已包含独立的Milvus配置文件 `installation/milvus/docker-compose.yml`。
 
-```yaml
-version: '3.5'
-
-services:
-  etcd:
-    image: quay.io/coreos/etcd:v3.5.5
-    container_name: milvus_etcd
-    environment:
-      - ETCD_AUTO_COMPACTION_MODE=revision
-      - ETCD_AUTO_COMPACTION_RETENTION=1000
-      - ETCD_QUOTA_BACKEND_BYTES=4294967296
-      - ETCD_SNAPSHOT_COUNT=50000
-    volumes:
-      - milvus-etcd:/etcd
-    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
-    networks:
-      - milvus
-
-  minio:
-    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
-    container_name: milvus_minio
-    environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-    volumes:
-      - milvus-minio:/minio_data
-    command: minio server /minio_data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-    networks:
-      - milvus
-
-  pulsar:
-    image: apachepulsar/pulsar:2.11.0
-    container_name: milvus_pulsar
-    command: bin/pulsar standalone
-    environment:
-      - PULSAR_MEM=" -Xms512m -Xmx512m -XX:MaxDirectMemorySize=1g"
-    volumes:
-      - milvus-pulsar:/pulsar/data
-      - milvus-pulsar-conf:/pulsar/conf
-    networks:
-      - milvus
-
-  milvus:
-    image: milvusdb/milvus:v2.3.3
-    container_name: milvus_standalone
-    command: ["milvus", "run", "standalone"]
-    environment:
-      ETCD_ENDPOINTS: etcd:2379
-      MINIO_ADDRESS: minio:9000
-    volumes:
-      - milvus-db:/var/lib/milvus
-    ports:
-      - "19530:19530"
-      - "9091:9091"
-    depends_on:
-      - "etcd"
-      - "minio"
-      - "pulsar"
-    networks:
-      - milvus
-
-volumes:
-  milvus-etcd:
-  milvus-minio:
-  milvus-pulsar:
-  milvus-pulsar-conf:
-  milvus-db:
-
-networks:
-  milvus:
-    driver: bridge
-```
+**配置说明**：
+- Milvus版本：`v2.3.3`
+- 端口：`19530`（向量查询）、`9091`（监控API）
+- 依赖服务：etcd、MinIO、Pulsar
+- 数据存储：使用Docker volumes持久化
 
 ### 5.2 启动Milvus
 
 ```bash
-# 进入项目根目录
-cd /path/to/Intelligent_Legal_Assistant
+# 进入Milvus安装目录
+cd installation/milvus
 
-# 使用Milvus专用的docker-compose文件启动
-docker-compose -f docker-compose.milvus.yml up -d
+# 启动Milvus服务
+docker-compose up -d
 
 # 查看容器状态
-docker-compose -f docker-compose.milvus.yml ps
+docker-compose ps
 
 # 查看Milvus日志
-docker-compose -f docker-compose.milvus.yml logs -f milvus
+docker-compose logs -f milvus
 
 # 等待所有服务启动完成（约30-60秒）
 ```
+
+#### 启动成功输出示例
+
+```
+Creating network "milvus_milvus" with the default driver
+Creating volume "milvus_milvus-etcd" with default driver
+Creating volume "milvus_milvus-minio" with default driver
+Creating volume "milvus_milvus-pulsar" with default driver
+Creating volume "milvus_milvus-db" with default driver
+Creating milvus_etcd    ... done
+Creating milvus_minio   ... done
+Creating milvus_pulsar  ... done
+Creating milvus_standalone ... done
+```
+
+#### 查看服务状态
+
+所有服务启动成功后，应该看到以下容器运行：
+
+```bash
+docker ps
+```
+
+应该看到：
+- `milvus_standalone` - Milvus主服务
+- `milvus_etcd` - etcd配置存储
+- `milvus_minio` - MinIO对象存储
+- `milvus_pulsar` - Pulsar消息队列
 
 ### 5.3 验证Milvus安装
 
@@ -706,22 +689,29 @@ docker exec -it milvus_standalone bash
 
 ```bash
 # 停止Milvus服务
-docker-compose -f docker-compose.milvus.yml stop
+cd installation/milvus
+docker-compose stop
 
 # 启动Milvus服务
-docker-compose -f docker-compose.milvus.yml start
+docker-compose start
 
 # 重启Milvus服务
-docker-compose -f docker-compose.milvus.yml restart
+docker-compose restart
 
 # 查看服务日志
-docker-compose -f docker-compose.milvus.yml logs -f
+docker-compose logs -f
+
+# 查看特定服务日志
+docker-compose logs -f milvus
+docker-compose logs -f etcd
+docker-compose logs -f minio
+docker-compose logs -f pulsar
 
 # 停止并删除所有Milvus容器（谨慎使用！）
-docker-compose -f docker-compose.milvus.yml down
+docker-compose down
 
 # 停止并删除所有Milvus容器和数据（谨慎使用！会删除所有向量数据）
-docker-compose -f docker-compose.milvus.yml down -v
+docker-compose down -v
 ```
 
 ### 5.5 Milvus数据备份与恢复
@@ -729,13 +719,13 @@ docker-compose -f docker-compose.milvus.yml down -v
 ```bash
 # 备份Milvus数据卷
 docker run --rm \
-  -v milvus-db:/data \
+  -v milvus_milvus-db:/data \
   -v $(pwd):/backup \
   ubuntu tar czf /backup/milvus_backup_$(date +%Y%m%d).tar.gz -C /data .
 
 # 恢复Milvus数据卷
 docker run --rm \
-  -v milvus-db:/data \
+  -v milvus_milvus-db:/data \
   -v $(pwd):/backup \
   ubuntu tar xzf /backup/milvus_backup_YYYYMMDD.tar.gz -C /data
 ```
@@ -799,7 +789,7 @@ curl http://localhost:9000/minio/health/live
 
 ```bash
 # 克隆项目仓库
-git clone <repository-url>
+git clone https://github.com/zhangkuntony/Intelligent_Legal_Assistant
 cd Intelligent_Legal_Assistant
 
 # 查看项目结构
@@ -826,7 +816,7 @@ PORT=8000
 
 # ==================== 数据库配置 ====================
 # PostgreSQL数据库连接字符串
-DATABASE_URL=postgresql+asyncpg://legal_assistant:legal_assistant_password@localhost:5432/legal_assistant
+DATABASE_URL=postgresql+asyncpg://legal_assistant:legal_assistant_123456@localhost:5432/legal_assistant
 
 # ==================== 安全配置 ====================
 # JWT密钥，生产环境必须修改为强密码
@@ -885,7 +875,7 @@ PORT=8000
 
 # ==================== 数据库配置 ====================
 # PostgreSQL数据库连接字符串
-DATABASE_URL=postgresql+asyncpg://legal_assistant:legal_assistant_password@localhost:5432/legal_assistant
+DATABASE_URL=postgresql+asyncpg://legal_assistant:legal_assistant_123456@localhost:5432/legal_assistant
 
 # ==================== 安全配置 ====================
 # JWT密钥，生产环境必须修改为强密码
@@ -939,25 +929,35 @@ LOG_FILE=./logs/app.log
 #### 方式一：Docker容器部署（推荐用于快速启动和生产环境）
 
 ```bash
-# 1. 启动Milvus向量数据库
-docker-compose -f docker-compose.milvus.yml up -d
-
-# 等待Milvus启动完成（约30-60秒）
-docker-compose -f docker-compose.milvus.yml ps
-
-# 2. 启动主服务（PostgreSQL、Redis、后端、前端）
+# 1. 启动PostgreSQL数据库（使用独立配置）
+cd installation/pgvector
 docker-compose up -d
 
-# 3. 查看所有服务状态
+# 2. 手动初始化数据库（首次安装必须执行）
+cd ../..
+docker exec -i legal_assistant_db psql -U legal_assistant -d legal_assistant < database/schema.sql
+
+# 3. 启动Milvus向量数据库（使用独立配置）
+cd installation/milvus
+docker-compose up -d
+
+# 等待Milvus启动完成（约30-60秒）
+docker-compose ps
+cd ../..
+
+# 4. 启动主服务（Redis、后端、前端）
+docker-compose up -d redis backend frontend
+
+# 5. 查看所有服务状态
 docker-compose ps
 
-# 4. 查看服务日志
+# 6. 查看服务日志
 docker-compose logs -f
 
 # 如果需要查看特定服务日志
 docker-compose logs -f backend
 docker-compose logs -f frontend
-docker-compose logs -f postgres
+docker-compose logs -f redis
 ```
 
 #### 方式二：本地服务启动（推荐用于开发和调试）
@@ -967,16 +967,26 @@ docker-compose logs -f postgres
 ##### 步骤1：启动基础服务（使用Docker）
 
 ```bash
-# 1. 启动Milvus向量数据库（必须使用Docker）
-docker-compose -f docker-compose.milvus.yml up -d
+# 1. 启动PostgreSQL数据库（使用独立配置）
+cd installation/pgvector
+docker-compose up -d
 
-# 2. 启动PostgreSQL和Redis（使用Docker）
-docker-compose up -d postgres redis
+# 2. 手动初始化数据库（首次安装必须执行）
+cd ../..
+docker exec -i legal_assistant_db psql -U legal_assistant -d legal_assistant < database/schema.sql
 
-# 3. 验证服务状态
-docker-compose ps
+# 3. 启动Milvus向量数据库（使用独立配置）
+cd installation/milvus
+docker-compose up -d
+cd ../..
 
-# 应该看到以下容器运行：
+# 4. 启动Redis（使用Docker）
+docker-compose up -d redis
+
+# 5. 验证服务状态
+docker ps
+
+# 应该看到以下容器运行:
 # - legal_assistant_db (PostgreSQL)
 # - legal_assistant_redis (Redis)
 # - milvus_standalone (Milvus)
@@ -1137,7 +1147,10 @@ cd frontend
 npm run dev
 
 # 终端窗口3：监控日志（可选）
-docker-compose logs -f postgres redis
+cd installation/milvus
+docker-compose logs -f
+cd ../..
+docker-compose logs -f redis
 
 # 终端窗口4：运行测试（可选）
 cd backend
@@ -1152,12 +1165,22 @@ pytest
 # 停止前端（在前端终端窗口按 Ctrl+C）
 
 # 停止Docker服务
-docker-compose stop postgres redis
-docker-compose -f docker-compose.milvus.yml stop
+cd installation/pgvector
+docker-compose stop
+cd ../..
+cd installation/milvus
+docker-compose stop
+cd ../..
+docker-compose stop redis
 
 # 如需完全停止并删除容器
-docker-compose down postgres redis
-docker-compose -f docker-compose.milvus.yml down
+cd installation/pgvector
+docker-compose down
+cd ../..
+cd installation/milvus
+docker-compose down
+cd ../..
+docker-compose down redis
 ```
 
 ##### 常见本地开发问题
@@ -1225,11 +1248,13 @@ backend    | INFO:     MinIO服务初始化成功
 
 ### 7.5 首次启动的数据库初始化
 
-```bash
-# 检查PostgreSQL容器是否自动执行了初始化脚本
-docker exec legal_assistant_db psql -U legal_assistant -d legal_assistant -c "\dt"
+**重要提示**：PostgreSQL使用独立配置安装后，必须手动执行数据库初始化脚本。
 
-# 如果表未创建，手动执行初始化
+```bash
+# 检查PostgreSQL容器是否正常运行
+docker ps | grep legal_assistant_db
+
+# 手动执行数据库初始化（首次安装必须执行）
 docker exec -i legal_assistant_db psql -U legal_assistant -d legal_assistant < database/schema.sql
 
 # 验证表已创建
@@ -1460,7 +1485,8 @@ docker exec legal_assistant_db psql -U legal_assistant -d legal_assistant -c "\d
 
 ```bash
 # 检查依赖服务状态
-docker-compose -f docker-compose.milvus.yml ps
+cd installation/milvus
+docker-compose ps
 
 # 检查Milvus日志
 docker logs milvus_standalone
@@ -1473,6 +1499,9 @@ docker logs milvus_minio
 
 # 检查pulsar日志
 docker logs milvus_pulsar
+
+# 查看所有服务日志
+docker-compose logs -f
 ```
 
 #### 问题2: 无法连接到Milvus
@@ -1509,6 +1538,10 @@ EOF
 
 # 如果连接成功，检查存储空间
 docker exec milvus_standalone df -h
+
+# 查看服务状态
+cd installation/milvus
+docker-compose ps
 ```
 
 ### 9.4 后端服务相关问题
@@ -1853,7 +1886,7 @@ npm run test:coverage
      - Port: 5432
      - Database: legal_assistant
      - Username: legal_assistant
-     - Password: legal_assistant_password
+     - Password: legal_assistant_123456
 
 2. **DBeaver** - 通用数据库管理工具
    - 下载：https://dbeaver.io/download/
@@ -2100,12 +2133,22 @@ sudo ufw deny 8000/tcp  # 限制后端直接访问
 
 ```bash
 # 1. 停止所有服务
+cd installation/pgvector
 docker-compose down
-docker-compose -f docker-compose.milvus.yml down
+cd ../..
+cd installation/milvus
+docker-compose down
+cd ../..
+docker-compose down
 
 # 2. 删除所有容器和数据（谨慎使用！）
+cd installation/pgvector
 docker-compose down -v
-docker-compose -f docker-compose.milvus.yml down -v
+cd ../..
+cd installation/milvus
+docker-compose down -v
+cd ../..
+docker-compose down -v
 
 # 3. 删除Docker镜像
 docker rmi $(docker images -q 'legal_assistant*')
@@ -2147,7 +2190,7 @@ rm -rf Intelligent_Legal_Assistant
 
 | 服务 | 用户名 | 密码 | 用途 |
 |------|--------|------|------|
-| PostgreSQL | legal_assistant | legal_assistant_password | 数据库连接 |
+| PostgreSQL | legal_assistant | legal_assistant_123456 | 数据库连接 |
 | MinIO | uqDog1xApy0KOR0fVwx8 | xas1b6kc4Wz4G5vgUDKrpOlBsRaQ88MTzkpL9EEa | 对象存储 |
 
 **⚠️ 重要**: 生产环境请务必修改所有默认凭据！
@@ -2167,9 +2210,13 @@ Intelligent_Legal_Assistant/
 ├── database/                  # 数据库脚本
 │   ├── schema.sql            # 数据库结构
 │   └── init.sql              # 初始化脚本
+├── installation/              # 独立安装配置
+│   ├── pgvector/             # PostgreSQL安装配置
+│   │   └── docker-compose.yml # PostgreSQL独立部署
+│   └── milvus/              # Milvus安装配置
+│       └── docker-compose.yml # Milvus独立部署
 ├── docs/                      # 文档目录
 ├── docker-compose.yml         # 主服务编排
-├── docker-compose.milvus.yml  # Milvus服务编排
 ├── .env.example              # 环境变量模板
 └── README.md                 # 项目说明
 ```

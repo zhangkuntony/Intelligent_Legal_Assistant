@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  # PostgreSQL数据库服务
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: legal_assistant_db
+    environment:
+      POSTGRES_DB: legal_assistant
+      POSTGRES_USER: legal_assistant
+      POSTGRES_PASSWORD: legal_assistant_123456
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../../database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - legal_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U legal_assistant -d legal_assistant"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  legal_network:
+    driver: bridge

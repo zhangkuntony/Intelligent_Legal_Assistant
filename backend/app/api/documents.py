@@ -2,31 +2,45 @@
 文档管理API路由
 """
 import hashlib
+import logging
+import os
+import shutil
 import time
-from datetime import datetime, timedelta
 
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from io import BytesIO
+from pathlib import Path
+
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-import os
-import shutil
-import uuid
-from pathlib import Path
 
-from ..core.database import get_db
+from urllib.parse import quote
+
 from ..core.config import settings
+from ..core.database import get_db
 from ..core.security import get_current_user
-from ..models.user import User
 from ..models.document_category import DocumentCategory
+from ..models.user import User
 from ..models.document import Document, DocumentEmbedding
 
+from ..services.langchain_processor.unified_processor import UnifiedDocumentProcessor
+from ..services.langchain_processor.retrieval_service import RetrievalService
+from ..services.storage.minio_service import minio_service
+
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 # 临时下载令牌存储
 _download_tokens = {}
 
+# 初始化统一处理器（全局单例）
+unified_processor = UnifiedDocumentProcessor()
+retrieval_service = RetrievalService(unified_processor)
 
 @router.get("")
 async def get_documents(
@@ -36,33 +50,60 @@ async def get_documents(
         db: AsyncSession = Depends(get_db)
 ):
     print(f"get documents skip: {skip}, limit: {limit}")
-    """获取用户文档列表"""
-    result = await db.execute(
-        select(Document)
+    """获取用户文档列表，使用JOIN关联document_category表"""
+    stmt = (
+        select(
+            Document.id,
+            Document.title,
+            Document.filename,
+            Document.description,
+            Document.file_size,
+            Document.file_category,
+            Document.status,
+            Document.total_chunks,
+            Document.processed_chunks,
+            Document.created_at,
+            Document.updated_at,
+            DocumentCategory.category_name.label("file_category_name")
+        )
+        .outerjoin(DocumentCategory, Document.file_category == DocumentCategory.category_code)
         .where(Document.user_id == current_user.id)
-        .order_by(Document.updated_at.desc())
+        .order_by(Document.created_at.desc())
         .offset(skip)
         .limit(limit)
     )
-    documents = result.scalars().all()
+
+    result = await db.execute(stmt)
+    documents = result.all()
+
+    count_stmt = (
+        select(func.count())
+        .select_from(Document)
+        .where(Document.user_id == current_user.id)
+    )
+    total_result = await db.execute(count_stmt)
+    total = total_result.scalar()
+
+    # 转换为Dict格式
+    result_list = []
+    for doc in documents:
+        result_list.append({
+            "id": str(doc.id),
+            "title": doc.title,
+            "filename": doc.filename,
+            "description": doc.description,
+            "file_size": doc.file_size,
+            "file_category": doc.file_category,
+            "file_category_name": doc.file_category_name,
+            "status": doc.status,
+            "total_chunks": doc.total_chunks,
+            "processed_chunks": doc.processed_chunks,
+            "created_at": doc.created_at,
+            "updated_at": doc.updated_at
+        })
 
     return {
-        "documents": [
-            {
-                "id": str(doc.id),
-                "title": doc.title,
-                "filename": doc.filename,
-                "file_size": doc.file_size,
-                "file_category": doc.file_category,
-                "status": doc.status,
-                "total_chunks": doc.total_chunks,
-                "processed_chunks": doc.processed_chunks,
-                "created_at": doc.created_at,
-                "updated_at": doc.updated_at
-            }
-            for doc in documents
-        ],
-        "total": len(documents)
+        "documents": result_list, "total": total
     }
 
 
@@ -71,10 +112,11 @@ async def upload_document(
         file: UploadFile = File(...),
         title: str = Form(None),
         file_category: str = Form(None),
+        description: str = Form(None),
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
-    """上传文档"""
+    """上传文档到MinIO"""
     # 验证文件类型
     allowed_types = [
         "application/pdf",
@@ -90,11 +132,16 @@ async def upload_document(
             detail="不支持的文件类型，仅支持 PDF、Word、TXT、Markdown 文件"
         )
 
+    logger.info(f"upload {file.filename}")
+    logger.info(f"文件类型: {file_category}")
+    logger.info(f"文件描述: {description}")
+
+    # 读取文件内容
+    file_content = await file.read()
+    file_size = len(file_content)
+
     # 验证文件大小（最大50MB）
     max_size = 50 * 1024 * 1024
-    file.file.seek(0, 2)  # 移动到文件末尾
-    file_size = file.file.tell()
-    file.file.seek(0)  # 重置文件指针
 
     if file_size > max_size:
         raise HTTPException(
@@ -102,48 +149,77 @@ async def upload_document(
             detail="文件大小超过限制（最大50MB）"
         )
 
-    # 创建上传目录
-    upload_dir = Path(settings.UPLOAD_DIR)
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        # 生成唯一的MinIO对象名称
+        import uuid
+        file_extension = Path(file.filename).suffix
+        object_name = f"documents/{current_user.id}/{uuid.uuid4()}{file_extension}"
 
-    # 生成唯一文件名
-    file_extension = Path(file.filename).suffix
-    unique_filename = f"{uuid.uuid4()}{file_extension}"
-    file_path = upload_dir / unique_filename
+        file_content_type = file.content_type
 
-    # 保存文件
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        # 上传到MinIO
+        upload_result = minio_service.upload_bytes(
+            data=file_content,
+            object_name=object_name,
+            length=file_size,
+            content_type=file_content_type,
+            metadata={
+                'user_id': str(current_user.id),
+                'file_category': file_category
+            }
+        )
 
-    # 创建文档记录
-    document_title = title or Path(file.filename).stem
-    category = file_category or "其他"
-    document = Document(
-        user_id=current_user.id,
-        title=document_title,
-        filename=file.filename,
-        file_path=str(file_path),
-        file_size=file_size,
-        file_category=category,
-        status="uploaded"
-    )
+        logger.info(f"文件上传到MinIO成功: {object_name}")
 
-    db.add(document)
-    await db.commit()
-    await db.refresh(document)
+        # 创建文档记录 - 中文信息存储在PostgreSQL中
+        document_title = title or Path(file.filename).stem
+        category = file_category or "其他"
+        document = Document(
+            user_id=current_user.id,
+            title=document_title,
+            filename=file.filename,
+            file_path=object_name,
+            file_size=file_size,
+            file_category=category,
+            description=description,
+            status="pending",
+            meta_data={
+                'minio_bucket': upload_result['bucket_name'],
+                'minio_object': upload_result['object_name'],
+                'minio_etag': upload_result['etag'],
+                'file_category': file_category,
+                'presigned_url': upload_result['presigned_url'],
+                'content_type': file_content_type
+            }
+        )
 
-    return {
-        "message": "文档上传成功",
-        "document": {
-            "id": str(document.id),
-            "title": document.title,
-            "filename": document.filename,
-            "file_size": document.file_size,
-            "status": document.status,
-            "created_at": document.created_at
+        db.add(document)
+        await db.commit()
+        await db.refresh(document)
+
+        logger.info(f"文档记录创建成功: {document.id}")
+
+        return {
+            "message": "文档上传成功",
+            "document": {
+                "id": str(document.id),
+                "title": document.title,
+                "filename": document.filename,
+                "file_size": document.file_size,
+                "file_category": document.file_category,
+                "description": document.description,
+                "status": document.status,
+                "created_at": document.created_at,
+                "download_url": upload_result['presigned_url']
+            }
         }
-    }
 
+    except Exception as e:
+        logger.error(f"文档上传失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"文档上传失败: {str(e)}"
+        )
 
 @router.get("/{document_id}/download")
 async def download_document(
@@ -223,22 +299,37 @@ async def download_document_direct(
             detail="没有权限下载该文档"
         )
 
-    if not os.path.exists(document.file_path):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="文件不存在或已被删除"
+    try:
+        # 2. 从MinIO下载数据
+        file_content = minio_service.download_bytes(document.file_path)
+
+        logger.info(f"文件下载成功: {document.filename}, 大小: {len(file_content)}")
+
+        # 3. 返回文件流
+        file_stream = BytesIO(file_content)
+        content_type = document.meta_data.get('content_type', 'application/octet-stream') if document.meta_data else 'application/octet-stream'
+
+        # 处理文件名编码，支持中文
+        filename_encoded = quote(document.filename, safe='')
+        content_disposition = f"attachment; filename*=UTF-8''{filename_encoded}"
+
+        logger.info(f"Content-Disposition: {content_disposition}")
+
+        return StreamingResponse(
+            file_stream,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": content_disposition,
+                "Content-Length": str(len(file_content)),
+            }
         )
 
-    # 2. 直接返回文件流
-    return FileResponse(
-        path=document.file_path,
-        filename=document.filename,  # 使用原始文件名
-        media_type=document.file_type,
-        headers={
-            "Content-Disposition": f"attachment; filename={document.filename}",
-            "Cache-Control": "no-cache"
-        }
-    )
+    except Exception as e:
+        logger.error(f"文件下载失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"文件下载失败: {str(e)}"
+        )
 
 
 @router.post("/{document_id}/download/token")
@@ -348,6 +439,7 @@ async def get_document(
             "id": str(document.id),
             "title": document.title,
             "filename": document.filename,
+            "description": document.description,
             "file_size": document.file_size,
             "file_category": document.file_category,
             "status": document.status,
@@ -382,6 +474,7 @@ async def get_document(
 async def update_document(
         document_id: str,
         title: str = None,
+        description: str = None,
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
@@ -408,6 +501,9 @@ async def update_document(
     if title is not None:
         document.title = title
 
+    if description is not None:
+        document.description = description
+
     await db.commit()
     await db.refresh(document)
 
@@ -416,6 +512,7 @@ async def update_document(
         "document": {
             "id": str(document.id),
             "title": document.title,
+            "description": document.description,
             "updated_at": document.updated_at
         }
     }
@@ -427,7 +524,7 @@ async def delete_document(
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
-    """删除文档"""
+    """删除文档（从MinIO和数据库中删除"""
     result = await db.execute(
         select(Document).where(Document.id == document_id)
     )
@@ -446,23 +543,63 @@ async def delete_document(
             detail="没有权限删除该文档"
         )
 
-    # 删除物理文件
-    if os.path.exists(document.file_path):
-        os.remove(document.file_path)
+    try:
+        # 步骤1：删除Milvus中的向量数据（如果已处理）
+        if document.status == "processed" or document.status == "processing":
+            try:
+                minio_object = None
+                if document.meta_data and isinstance(document.meta_data, dict):
+                    minio_object = document.meta_data.get("minio_object")
 
-    await db.delete(document)
-    await db.commit()
+                await unified_processor.delete_document_vectors(
+                    document_id=str(document.id),
+                    minio_object=minio_object or document.file_path
+                )
+                logger.info(f"Milvus向量删除成功: {document_id}")
+            except Exception as e:
+                logger.error(f"删除Milvus向量失败: {str(e)}")
 
-    return {"message": "文档删除成功"}
+        # 步骤2：从MinIO删除文件
+        try:
+            # 删除PDF文件本身
+            minio_service.delete_file(document.file_path)
+            logger.info(f"MinIO文件删除成功: {document.file_path}")
+
+            # 删除PDF提取的图片(如果存在), 图片保存咋documents/{document_id}/images/下
+            image_prefix = f"documents/{document.id}/images/"
+            try:
+                deleted_images = minio_service.delete_directory(image_prefix)
+                logger.info(f"MinIO图片目录删除成功: {image_prefix}, 删除了 {deleted_images} 个图片")
+            except Exception as e:
+                # 图片删除失败不影响主要流程
+                logger.warning(f"删除MinIO图片目录失败: {str(e)}")
+        except Exception as e:
+            logger.error(f"删除MinIO文件失败: {str(e)}")
+
+        # 步骤3：删除数据库记录
+        await db.delete(document)
+        await db.commit()
+
+        logger.info(f"文档删除成功: {document_id}")
+
+        return {"message": "文档删除成功"}
+
+    except Exception as e:
+        logger.error(f"文档删除失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"文档删除失败: {str(e)}"
+        )
 
 
 @router.post("/{document_id}/process")
 async def process_document(
         document_id: str,
+        strategy: str = None,
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
-    """处理文档（生成向量嵌入）"""
+    """处理文档（生成向量嵌入）- 从MinIO下载文件后处理"""
     result = await db.execute(
         select(Document).where(Document.id == document_id)
     )
@@ -488,29 +625,119 @@ async def process_document(
             detail="文档正在处理中"
         )
 
-    if document.status == "completed":
+    if document.status == "processed":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="文档已处理完成"
         )
 
-    # 这里应该启动异步处理任务
-    # 暂时模拟处理过程
-    document.status = "processing"
-    await db.commit()
+    # 创建临时目录用于处理
+    import tempfile
+    temp_dir = Path(tempfile.mkdtemp())
+    temp_file_path = None
 
-    # 模拟处理完成
-    # 在实际应用中，这里应该调用异步任务队列
-    document.status = "completed"
-    document.total_chunks = 10  # 模拟分块数量
-    document.processed_chunks = 10
-    await db.commit()
+    try:
+        # 更新状态为处理中
+        document.status = "processing"
+        await db.commit()
 
-    return {
-        "message": "文档处理任务已启动",
-        "document_id": str(document.id),
-        "status": document.status
-    }
+        # 从MinIO下载文件到临时目录
+        temp_file_path = temp_dir / Path(document.filename).name
+        minio_service.download_file(
+            object_name=document.file_path,
+            file_path=str(temp_file_path)
+        )
+        logger.info(f"文件从MinIO下载成功: {temp_file_path}")
+
+        # 使用统一处理器处理文档
+        processed_result = await unified_processor.process_document(
+            file_path=str(temp_file_path),
+            strategy=strategy or "hybrid",
+            metadata={
+                'document_id': str(document.id),
+                'user_id': str(current_user.id),
+                'file_category': document.file_category,
+                'title': document.title,
+                'minio_object': document.file_path,
+                'minio_bucket': settings.MINIO_BUCKET_NAME
+            }
+        )
+
+        # 更新文档信息
+        if processed_result.status.value == "completed":
+            document.status = "processed"
+            document.total_chunks = processed_result.processing_stats.total_chunks
+            document.processed_chunks = processed_result.processing_stats.total_chunks
+            # 合并元数据
+            existing_meta = document.meta_data or {}
+            existing_meta.update(processed_result.metadata)
+            document.meta_data = existing_meta
+        else:
+            document.status = "failed"
+            document.processing_error = str(processed_result.processing_stats.errors[0]) if processed_result.processing_stats.errors else "处理失败"
+
+        await db.commit()
+        await db.refresh(document)
+
+        logger.info(f"文档处理完成: {document.id}, 状态: {document.status}")
+
+        return {
+            "message": "文档处理完成",
+            "document_id": str(document.id),
+            "status": document.status,
+            "total_chunks": document.total_chunks,
+            "processing_time": processed_result.processing_stats.processing_time,
+            "strategy": strategy or "hybrid"
+        }
+
+    except Exception as e:
+        document.status = "error"
+        document.processing_error = str(e)
+        await db.commit()
+
+        logger.error(f"文档处理失败: {document_id}, 错误: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"文档处理失败: {str(e)}"
+        )
+
+    finally:
+        # 清理临时文件
+        if temp_file_path and temp_file_path.exists():
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            logger.info(f"临时文件已清理: {temp_dir}")
+
+
+@router.post("/search")
+async def search_documents(
+        query: str = Form(...),
+        strategy: str = Form("hybrid"),
+        top_k: int = Form(5),
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """搜索相关文档内容"""
+    try:
+        # 检索相关文档
+        results = await retrieval_service.retrieve(
+            query=query,
+            strategy=strategy,
+            top_k=top_k
+        )
+
+        return {
+            "query": query,
+            "strategy": strategy,
+            "results": results,
+            "total": len(results)
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"搜索失败: {str(e)}"
+        )
+
 
 
 @router.get("/{document_id}/embeddings")

@@ -1,11 +1,15 @@
 """
 PDF文档处理器
 """
-from typing import Dict, Any, List
 from dataclasses import dataclass
+from io import BytesIO
+from typing import Dict, Any, List
 
 from .base_processor import BaseDocumentProcessor, DocumentChunk
 from .exceptions import ExtractionError
+from ..storage.minio_service import minio_service
+
+import logging
 
 try:
     import PyPDF2
@@ -14,6 +18,8 @@ try:
     PDF_SUPPORT_AVAILABLE = True
 except ImportError:
     PDF_SUPPORT_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -112,31 +118,45 @@ class PDFProcessor(BaseDocumentProcessor):
             # 元数据提取失败不影响主要功能
             return await super().extract_metadata(file_path)
 
-    async def extract_images(self, file_path: str) -> List[ImageInfo]:
-        """提取PDF中的图像（可选，用于OCR处理）"""
-        images = []
+    async def extract_images_with_upload(self, file_path: str, document_id: str = None) -> Dict[int, List[Dict[str, Any]]]:
+        """
+        提取PDF中的图像并上传到MinIO
 
+        Returns:
+            {page_num: [{image_url, image_index, ...}]}
+        """
         try:
+            # 使用通用图片提取器
+            from .image_extractor import image_extractor
+
             with pdfplumber.open(file_path) as pdf:
-                for page_num, page in enumerate(pdf.pages, 1):
-                    # 提取页面图像
-                    page_images = page.images
-                    for img_index, img in enumerate(page_images):
-                        image_info = ImageInfo(
-                            page_num=page_num,
-                            image_index=img_index,
-                            image_type=img.get('filter', 'Unknown'),
-                            width=img.get('width', 0),
-                            height=img.get('height', 0),
-                            bbox=img.get('bbox', (0, 0, 0, 0))
-                        )
-                        images.append(image_info)
+                # 提取图片
+                images_by_page = await image_extractor.extract_images_from_pdf_pages(
+                    pdf=pdf,
+                    document_id=document_id
+                )
+
+                # 转换为字典格式
+                result = {}
+                for page_num, image_infos in images_by_page.items():
+                    result[page_num] = [
+                        {
+                            'image_index': img.image_index,
+                            'image_type': img.image_type,
+                            'width': img.width,
+                            'height': img.height,
+                            'bbox': img.bbox,
+                            'image_url': img.image_url,
+                            'minio_object': img.minio_object
+                        }
+                        for img in image_infos
+                    ]
+
+                return result
 
         except Exception as e:
-            # 图像提取失败不影响主要功能
-            pass
-
-        return images
+            logger.error(f"提取和上传PDF图片失败: {e}")
+            return {}
 
     async def validate_file(self, file_path: str) -> bool:
         """验证PDF文件完整性"""

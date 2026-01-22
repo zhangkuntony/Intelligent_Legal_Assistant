@@ -81,6 +81,22 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
+    # 初始化MinIO存储服务
+    try:
+        from .services.storage.minio_service import minio_service
+        minio_service.initialize()
+        logging.info("MinIO服务初始化成功")
+    except Exception as e:
+        logging.error(f"MinIO服务初始化失败：{str(e)}")
+
+    # 初始化Milvus向量数据库
+    try:
+        from .services.vector_store.milvus_service import milvus_store
+        milvus_store.initialize()
+        logging.info("Milvus服务初始化成功")
+    except Exception as e:
+        logging.error(f"Milvus服务初始化失败: {str(e)}")
+
     # 注册API路由
     app.include_router(auth_router, prefix="/api/auth", tags=["认证"])
     app.include_router(users_router, prefix="/api/users", tags=["用户"])

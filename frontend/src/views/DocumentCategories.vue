@@ -52,6 +52,7 @@ const loadCategories = async () => {
     const response = await request.get(API_CONFIG.ENDPOINTS.DOCUMENT_CATEGORIES.BASE)
     categoryList.value = response.document_categories || []
   } catch (error) {
+    console.error('加载分类列表失败:', error)
     ElMessage.error('加载分类列表失败')
   } finally {
     loading.value = false

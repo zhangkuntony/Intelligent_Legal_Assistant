@@ -38,10 +38,11 @@ class Settings(BaseSettings):
     ALLOWED_FILE_TYPES: List[str] = [".pdf", ".doc", ".docx", ".txt"]
 
     # AI服务配置
-    OPENAI_API_KEY: Optional[str] = None
-    OPENAI_BASE_URL: Optional[str] = "https://api.openai.com/v1"
-    OPENAI_MODEL: str = "gpt-3.5-turbo"
-    EMBEDDING_MODEL: str = "text-embedding-ada-002"
+    LLM_API_KEY: Optional[str] = "d5ef8378-b9b6-4c76-98ee-c55ebda4954d"
+    LLM_BASE_URL: Optional[str] = "https://ark.cn-beijing.volces.com/api/v3"
+    LLM_MODEL: str = "doubao-1-5-pro-32k-250115"
+    EMBEDDING_MODEL_URL: Optional[str] = "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal"
+    EMBEDDING_MODEL: str = "doubao-embedding-vision-250615"
 
     # 向量检索配置
     VECTOR_SEARCH_TOP_K: int = 5  # 检索最相似的5个文档块
@@ -53,6 +54,19 @@ class Settings(BaseSettings):
 
     # Redis配置（可选，用于缓存）
     REDIS_URL: Optional[str] = None
+
+    # MinIO对象存储配置
+    MINIO_ENDPOINT: str = "localhost:9000"
+    MINIO_ACCESS_KEY: str = "uqDog1xApy0KOR0fVwx8"
+    MINIO_SECRET_KEY: str = "xas1b6kc4Wz4G5vgUDKrpOlBsRaQ88MTzkpL9EEa"
+    MINIO_SECURE: bool = False  # HTTP模式，生产环境建议HTTPS
+    MINIO_BUCKET_NAME: str = "legal-documents"  # 文档存储桶名称
+
+    # Milvus向量数据库配置
+    MILVUS_HOST: str = "localhost"
+    MILVUS_PORT: int = 19530
+    MILVUS_COLLECTION_NAME: str = "legal_documents"  # 集合名称
+    MILVUS_DIMENSION: int = 2048  # OpenAI embedding维度
 
     class Config:
         env_file = ".env"

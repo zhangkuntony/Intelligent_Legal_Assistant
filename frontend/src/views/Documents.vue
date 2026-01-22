@@ -41,9 +41,15 @@
     </div>
 
     <div class="documents-content">
-      <el-table :data="filteredDocuments" style="width: 100%" v-loading="loading">
+      <el-table 
+        :data="filteredDocuments" 
+        style="width: 100%" 
+        v-loading="loading" 
+        :header-cell-style="{ 'text-align': 'center' }"
+         :cell-style="{ 'text-align': 'center' }"
+      >
         <el-table-column type="selection" width="55" />
-        <el-table-column prop="name" label="文档名称" min-width="200">
+        <el-table-column prop="name" label="文档名称" min-width="200" aligh="left">
           <template #default="{ row }">
             <div class="document-name">
               <el-icon :color="getFileColor(row.type)" style="margin-right: 8px;">
@@ -53,37 +59,28 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="file_type" label="类型" width="120">
+        <el-table-column prop="file_type" label="类型">
           <template #default="{ row }">
             <el-tag :type="getTagType(row.file_category)">
-              {{ row.file_category }}
+              {{ row.file_category_name }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="file_size" label="大小" width="100">
+        <el-table-column prop="file_size" label="大小">
           <template #default="{ row }">
             {{ formatFileSize(row.file_size) }}
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="上传时间" width="180">
+        <el-table-column prop="created_at" label="上传时间">
           <template #default="{ row }">
             {{ formatDateTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="120">
+        <el-table-column prop="status" label="状态">
           <template #default="{ row }">
             <el-tag :type="getStatusTagType(row.status)">
               {{ getStatusText(row.status) }}
             </el-tag>
-            <div v-if="row.status === 'processing'" class="progress-info">
-              <el-progress 
-                :percentage="calculateProgress(row)" 
-                :show-text="false" 
-                size="small"
-                style="width: 60px; margin-left: 8px;"
-              />
-              <span class="progress-text">{{ row.processed_chunks }}/{{ row.total_chunks }}</span>
-            </div>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="250">
@@ -94,8 +91,14 @@
             <el-button link type="primary" @click="downloadDocument(row)">
               下载
             </el-button>
-            <el-button link type="primary" @click="analyzeDocument(row)" :disabled="row.status !== 'processed'">
-              分析
+            <el-button 
+              link 
+              type="primary" 
+              @click="analyzeDocument(row)" 
+              :disabled="row.status === 'processing' || row.status === 'processed'"
+              :loading="row.status === 'processing'"
+            >
+              {{ row.status === 'processing' ? '处理中...' : '分析' }}
             </el-button>
             <el-button link type="danger" @click="deleteDocument(row)">
               删除
@@ -128,7 +131,7 @@
         :on-success="handleUploadSuccess"
         :on-error="handleUploadError"
         :before-upload="beforeUpload"
-        :file-list="fileList"
+        :file-list="uploadFileList"
         :auto-upload="false"
         multiple
       >
@@ -147,10 +150,12 @@
         <el-form :model="form" label-width="80px" style="margin-top: 20px;">
           <el-form-item label="文档分类">
             <el-select v-model="form.category" placeholder="请选择分类" style="width: 100%">
-              <el-option label="合同文件" value="contract" />
-              <el-option label="法律文书" value="legal" />
-              <el-option label="案例资料" value="case" />
-              <el-option label="其他文档" value="other" />
+              <el-option 
+                v-for="category in categories" 
+                :key="category.id"
+                :label="category.category_name" 
+                :value="category.category_code" 
+              />
             </el-select>
           </el-form-item>
           <el-form-item label="文档描述">
@@ -179,7 +184,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, UploadUserFile } from 'element-plus'
 import { Document, Folder } from '@element-plus/icons-vue'
 import { API_CONFIG } from '../config/api'
 import { useAuthStore } from '../stores/auth'
@@ -190,7 +195,7 @@ import { formatDateTime } from '../utils/dateTimeUtils'
 const loading = ref(false)
 const showUploadDialog = ref(false)
 const uploading = ref(false)
-const fileList = ref<any[]>([])
+const uploadFileList = ref<UploadUserFile[]>([])
 const uploadRef = ref()
 
 const searchKeyword = ref('')
@@ -238,12 +243,13 @@ const filteredDocuments = computed(() => {
 
 // API配置
 const authStore = useAuthStore()
-const uploadAction = computed(() => `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.DOCUMENTS.UPLOAD}`)
+const uploadAction = computed(() => API_CONFIG.ENDPOINTS.DOCUMENTS.UPLOAD)
 const uploadHeaders = computed(() => ({
   'Authorization': `Bearer ${authStore.token}`
 }))
 const uploadData = computed(() => ({
-  title: '',        // 可以根据需要添加其他字段
+  file_category: form.category,
+  description: form.description
 }))
 
 const getFileIcon = (type: string) => {
@@ -268,10 +274,10 @@ const getFileColor = (type: string) => {
 
 const getTagType = (type: string) => {
   const typeMap: Record<string, string> = {
-    '合同文件': 'primary',
-    '案例资料': 'success',
-    '法律文书': 'warning',
-    '法规法条': 'error'
+    'contract': 'primary',
+    'case': 'success',
+    'legal': 'warning',
+    'laws': 'error'
   }
   return typeMap[type] || 'info'
 }
@@ -339,7 +345,7 @@ const refreshDocuments = async () => {
   if (!token) {
     // 跳转到登录页面
     console.log('未找到token，跳转到登录页面')
-    window.location.href = '/login'
+    globalThis.location.href = '/login'
     return
   }
 
@@ -379,14 +385,14 @@ const downloadDocument = async (doc: any) => {
     })
     
     // 创建下载链接
-    const url = window.URL.createObjectURL(new Blob([response]))
+    const url = globalThis.URL.createObjectURL(new Blob([response]))
     const link = document.createElement('a')
     link.href = url
     link.setAttribute('download', doc.filename)
     document.body.appendChild(link)
     link.click()
     link.remove()
-    window.URL.revokeObjectURL(url)
+    globalThis.URL.revokeObjectURL(url)
     
     ElMessage.success('文档下载成功')
   } catch (error: any) {
@@ -395,13 +401,84 @@ const downloadDocument = async (doc: any) => {
   }
 }
 
-const analyzeDocument = (doc: any) => {
-  if (doc.status !== 'processed') {
-    ElMessage.warning('文档尚未处理完成，无法分析')
+const analyzeDocument = async (doc: any) => {
+  if (doc.status === 'processing') {
+    ElMessage.warning('文档正在处理中，请稍后')
     return
   }
-  ElMessage.info(`开始分析文档: ${doc.filename}`)
-  // TODO: 实现文档分析功能
+
+  if (doc.status === 'processed') {
+    ElMessage.warning('文档已处理完成')
+    return
+  }
+
+  try {
+    ElMessage.info(`开始分析文档: ${doc.filename}`)
+    // 调用后端处理接口
+    await request.post(`${API_CONFIG.ENDPOINTS.DOCUMENTS.BASE}/${doc.id}/process`)
+    ElMessage.success('文档处理已开始')
+
+    // 开始轮询文档状态
+    pollDocumentStatus(doc.id)
+  } catch (error: any) {
+    console.error('处理文档失败:', error)
+    ElMessage.error('处理文档失败: ' + (error.response?.data?.message || error.message))
+
+    // 刷新文档列表，获取最新状态
+    await refreshDocuments()
+  }  
+}
+
+// 轮询文档状态
+const pollDocumentStatus = async (documentId: string) => {
+  const maxAttempts = 60    // 最多轮询60次（约5分钟）
+  let attempts = 0
+
+  const poll = async () => {
+    try {
+      attempts++
+
+      if (attempts > maxAttempts) {
+        ElMessage.error('文档处理超时，请稍后查看')
+        await refreshDocuments()
+        return
+      }
+
+      // 获取文档详情
+      const response = await request.get(`${API_CONFIG.ENDPOINTS.DOCUMENTS.BASE}/${documentId}`)
+      const document = response.document
+
+      // 更新本地文档列表中的状态
+      const docIndex = documents.value.findIndex(d => d.id === documentId)
+      if (docIndex !== -1) {
+        documents.value[docIndex] = {
+          ...documents.value[docIndex],
+          status: document.status,
+          processed_chunks: document.processed_chunks,
+          total_chunks: document.total_chunks
+        }
+      }
+
+      // 检查处理状态
+      if (document.status === 'processed') {
+        ElMessage.success(`文档处理完成`)
+        return
+      } else if (document.status === 'error' || document.status === 'failed') {
+        ElMessage.error(`文档处理失败: ${document.processing_error || '未知错误'}`)
+        return
+      }
+
+      // 继续轮询
+      setTimeout(() => poll(), 5000)        // 每5秒轮询一次
+    } catch(error) {
+      console.error('轮询文档状态失败:', error)
+      // 出错后继续轮询
+      setTimeout(() => poll(), 5000)
+    }
+  }
+
+  // 开始轮询
+  setTimeout(() => poll(), 2000)  // 2秒后开始
 }
 
 const deleteDocument = async (doc: any) => {
@@ -445,17 +522,13 @@ const beforeUpload = (file: any) => {
 const handleReset = () => {
   form.category = ''
   form.description = ''
-  fileList.value = []
+  uploadFileList.value = []
 }
 
 const submitUpload = () => {
-  if (!uploadRef.value) return
-  const uploadFiles = uploadRef.value.uploadFiles
-  if (uploadFiles.length === 0) {
-    ElMessage.warning('请选择要上传的文件')
-    return
-  }
-  
+  if (!uploadRef.value) 
+    return;
+
   uploading.value = true
   uploadRef.value.submit()
 }
@@ -467,7 +540,7 @@ const handleUploadSuccess = (response: any, file: any) => {
   } else {
     ElMessage.success('文件上传成功')
     showUploadDialog.value = false
-    fileList.value = []
+    uploadFileList.value = []
     refreshDocuments()
   }
 }

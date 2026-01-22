@@ -56,14 +56,15 @@ CREATE TABLE documents (
     filename VARCHAR(255) NOT NULL,
     file_path VARCHAR(500) NOT NULL,
     file_size BIGINT NOT NULL,
-    file_type VARCHAR(50) NOT NULL,
+    file_category VARCHAR(50) NOT NULL,
     status VARCHAR(20) DEFAULT 'processing' CHECK (status IN ('processing', 'completed', 'failed')),
     processing_error TEXT,
     total_chunks INTEGER DEFAULT 0,
     processed_chunks INTEGER DEFAULT 0,
     meta_data JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    description VARCHAR(2000)
 );
 
 -- 文档向量表（使用pgvector扩展）
@@ -97,7 +98,8 @@ CREATE INDEX idx_messages_role ON messages(role);
 -- 文档表索引
 CREATE INDEX idx_documents_user_id ON documents(user_id);
 CREATE INDEX idx_documents_status ON documents(status);
-CREATE INDEX idx_documents_created_at ON documents(created_at);
+CREATE INDEX idx_documents_created_at ON documents(created_at)
+    WITH (fillfactor=100, deduplicate_items=True);
 
 -- 向量表索引（pgvector专用）
 CREATE INDEX idx_document_embeddings_document_id ON document_embeddings(document_id);
@@ -211,6 +213,9 @@ COMMENT ON TABLE conversations IS '用户对话会话表，记录每次对话的
 COMMENT ON TABLE messages IS '对话消息表，存储用户和AI的对话内容';
 COMMENT ON TABLE documents IS '知识库文档表，管理用户上传的法律文档';
 COMMENT ON TABLE document_embeddings IS '文档向量表，存储文档分块的向量化表示';
+
+-- 设置表所有者
+ALTER TABLE documents OWNER TO legal_assistant;
 
 COMMENT ON COLUMN users.password_hash IS '使用bcrypt加密的密码哈希';
 COMMENT ON COLUMN document_embeddings.embedding IS 'OpenAI text-embedding-ada-002模型生成的1536维向量';

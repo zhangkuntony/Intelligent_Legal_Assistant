@@ -17,6 +17,7 @@ langchain
 langchain-openai
 langchain-community
 langchain-core
+tf-keras
 volcengine-python-sdk==5.0.6
 
 # 文件处理

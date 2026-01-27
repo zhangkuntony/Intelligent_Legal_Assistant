@@ -73,6 +73,7 @@ class UnifiedDocumentProcessor:
             )
 
             extracted_text = await processor.extract_text(file_path)
+            logger.info(f"提取后的文本：{extracted_text}")
 
             # 1.5 提取并上传图片
             logger.info("提取并上传图片")
@@ -88,6 +89,7 @@ class UnifiedDocumentProcessor:
             # 2. 预处理文本
             logger.info("步骤2：预处理文本")
             preprocessed_text = await processor.preprocess_text(extracted_text)
+            logger.info(f"预处理后的文本: {preprocessed_text}")
 
             # 3. 分块处理（传递图片信息）
             logger.info("步骤3：分块处理")

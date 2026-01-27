@@ -176,11 +176,36 @@ class BaseDocumentProcessor(ABC):
 
     async def preprocess_text(self, text: str) -> str:
         """预处理文本"""
-        # 移除多余空格和换行符
-        text = ' '.join(text.split())
+        # 1. 移除首尾空白
+        text = text.strip()
 
-        # 标准化标点符号
+        # 2. 标准化换行符（将 \r\n 和 \r 统一为 \n）
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+
+        # 3. 处理每行，移除多余空格
+        lines = text.split('\n')
+        processed_lines = []
+
+        for line in lines:
+            # 移除每行的首尾空格，但保留内部空格
+            line = line.strip()
+            # 移除行内的连续多个空格
+            line = ' '.join(line.split())
+            processed_lines.append(line)
+
+        # 4. 重新组合，保留换行符
+        text = '\n'.join(processed_lines)
+
+        # 5. 移除空行（连续的多个换行符）
+        # 保留段落结构（单个换行），移除多余空行
+        import re
+        text = re.sub(r'\n{3,}', '\n\n', text)  # 3个以上换行符 → 2个（保留一个空行）
+
+        # 6. 标准化标点符号（可选）
         text = text.replace('。', '.').replace('，', ',').replace('；', ';')
+
+        # 7. 移除首尾多余空行
+        text = text.strip()
 
         return text
 

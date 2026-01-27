@@ -1,7 +1,7 @@
 """
 分块策略模块
 """
-
+import logging
 import re
 from abc import ABC, abstractmethod
 from typing import List
@@ -160,33 +160,85 @@ class LegalDocumentChunker(ChunkingStrategy):
             r'^第[一二三四五六七八九十]+章',  # 章节
             r'^第[0-9]+章',  # 数字章节
         ]
+        self.current_chapter = ""
 
     def chunk_text(self, text: str, **kwargs) -> List[DocumentChunk]:
+        logger = logging.getLogger(__name__)
+
         """法律文档分块"""
         chunks = []
         chunk_index = 0
+
+        logger.info(f"切片文本：{text}")
 
         # 按行分割
         lines = text.split('\n')
         current_clause = ""
         current_title = ""
+        current_chapter = ""
 
-        for line in lines:
+        logger.info(f"开始分块，共{len(lines)}行文本")
+
+        for line_num, line in enumerate(lines):
+            original_line = line        # 保留原始行
             line = line.strip()
+
             if not line:
                 continue
 
-            # 检查是否是法律条款开始
-            is_clause_start = self._is_legal_clause_start(line)
-
-            if is_clause_start:
-                # 保存上一个条款
+            # 检查是否是章节标题
+            is_chapter = self._is_chapter_title(line)
+            if is_chapter:
+                logger.info(f"检测到章节标题(第{line_num}行): {line}")
+                # 更新当前章节，但不创建独立分块
+                current_chapter = line
+                # 如果当前有条款内容，先保存
                 if current_clause:
-                    # 检查条款是否过长
+                    logger.info(f"保存上一个条款（章节{current_chapter}），长度: {len(current_clause)}")
+
                     if len(current_clause) > self.max_chunk_size:
                         sub_chunks = self._split_long_clause(current_clause, current_title, chunk_index)
+                        for sub_chunk in sub_chunks:
+                            if 'chapter' not in sub_chunk.metadata:
+                                sub_chunk.metadata['chapter'] = current_chapter
                         chunks.extend(sub_chunks)
                         chunk_index += len(sub_chunks)
+                        logger.info(f"长条款分割为 {len(sub_chunks)} 个子块")
+                    else:
+                        chunk = DocumentChunk(
+                            chunk_id=f"legal_chunk_{chunk_index}",
+                            content=current_clause,
+                            chunk_index=chunk_index,
+                            metadata={
+                                'strategy': 'legal_document',
+                                'clause_type': 'legal_clause',
+                                'clause_title': current_title,
+                                'chapter': current_chapter,
+                                'content_length': len(current_clause)
+                            },
+                            section_title=current_title
+                        )
+                        chunks.append(chunk)
+                        chunk_index += 1
+                    current_clause = ""
+                continue
+
+            # 检查是否是法律条款开始(但排除章节标题)
+            is_clause_start = self._is_legal_clause_start(line)
+
+            if is_clause_start and not is_chapter:
+                logger.info(f"检测到条款开始（第{line_num}行）: {line[:50]}...")
+                # 保存上一个条款
+                if current_clause:
+                    logger.info(f"保存上一个条款，长度: {len(current_clause)}")
+                    if len(current_clause) > self.max_chunk_size:
+                        sub_chunks = self._split_long_clause(current_clause, current_title, chunk_index)
+                        for sub_chunk in sub_chunks:
+                            if 'chapter' not in sub_chunk.metadata:
+                                sub_chunk.metadata['chapter'] = current_chapter
+                        chunks.extend(sub_chunks)
+                        chunk_index += len(sub_chunks)
+                        logger.info(f"长条款分割为 {len(sub_chunks)} 个子块")
                     else:
                         chunk = DocumentChunk(
                             chunk_id=f"legal_clause_{chunk_index}",
@@ -196,6 +248,7 @@ class LegalDocumentChunker(ChunkingStrategy):
                                 'strategy': 'legal_document',
                                 'clause_type': 'legal_clause',
                                 'clause_title': current_title,
+                                'chapter': current_chapter,
                                 'content_length': len(current_clause)
                             },
                             section_title=current_title
@@ -213,13 +266,24 @@ class LegalDocumentChunker(ChunkingStrategy):
                     current_clause += "\n" + line
                 else:
                     current_clause = line
-                    current_title = "前言"
+                    current_title = "前言" if not current_clause else current_clause
+                    logger.info(f"开始新的{current_title}（第{line_num}行）")
+
+        logger.info(f"循环结束，准备处理最后一个条款，长度: {len(current_clause)} if current_clause else 'None'")
 
         # 处理最后一个条款
         if current_clause:
+            logger.info(f"处理最后一个条款: {current_title[:50]}..., 长度: {len(current_clause)}")
+            # 检查条款是否过长
             if len(current_clause) > self.max_chunk_size:
                 sub_chunks = self._split_long_clause(current_clause, current_title, chunk_index)
+                # 为每个子块添加章节信息
+                for sub_chunk in sub_chunks:
+                    if 'chapter' not in sub_chunk.metadata:
+                        sub_chunk.metadata['chapter'] = current_chapter
                 chunks.extend(sub_chunks)
+                chunk_index += len(sub_chunks)
+                logger.info(f"最后条款分割为 {len(sub_chunks)} 个子块")
             else:
                 chunk = DocumentChunk(
                     chunk_id=f"legal_clause_{chunk_index}",
@@ -229,22 +293,28 @@ class LegalDocumentChunker(ChunkingStrategy):
                         'strategy': 'legal_document',
                         'clause_type': 'legal_clause',
                         'clause_title': current_title,
+                        'chapter': current_chapter,
                         'content_length': len(current_clause)
                     },
                     section_title=current_title
                 )
                 chunks.append(chunk)
 
+        logger.info(f"分块完成，共生成 {len(chunks)} 个分块")
         return chunks
 
     def _is_legal_clause_start(self, line: str) -> bool:
+        logger = logging.getLogger(__name__)
+
         """判断是否是法律条款开始"""
         for pattern in self.legal_patterns:
             if re.match(pattern, line):
+                logger.debug(f"匹配到条款模式: {pattern}, 行: {line[:30]}")
                 return True
 
         # 检查是否是章节标题
         if self._is_chapter_title(line):
+            logger.debug(f"这是章节标题，不是条款开始: {line[:30]}")
             return True
 
         return False
@@ -270,7 +340,7 @@ class LegalDocumentChunker(ChunkingStrategy):
         chunk_index = start_index
 
         # 按段落分割
-        paragraphs = clause_text.split('\n\n')
+        paragraphs = clause_text.split('\n')
         current_sub_chunk = ""
 
         for paragraph in paragraphs:
@@ -295,7 +365,8 @@ class LegalDocumentChunker(ChunkingStrategy):
                             'strategy': 'legal_document',
                             'clause_type': 'sub_clause',
                             'parent_clause': clause_title,
-                            'content_length': len(current_sub_chunk)
+                            'content_length': len(current_sub_chunk),
+                            'chapter': self.current_chapter
                         },
                         section_title=f"{clause_title} - 分段{chunk_index - start_index + 1}"
                     )
@@ -324,7 +395,8 @@ class LegalDocumentChunker(ChunkingStrategy):
                                         'strategy': 'legal_document',
                                         'clause_type': 'sentence_group',
                                         'parent_clause': clause_title,
-                                        'content_length': len(current_sentence_group)
+                                        'content_length': len(current_sentence_group),
+                                        'chapter': self.current_chapter
                                     },
                                     section_title=f"{clause_title} - 句子组{chunk_index - start_index + 1}"
                                 )
@@ -343,7 +415,8 @@ class LegalDocumentChunker(ChunkingStrategy):
                                 'strategy': 'legal_document',
                                 'clause_type': 'sentence_group',
                                 'parent_clause': clause_title,
-                                'content_length': len(current_sentence_group)
+                                'content_length': len(current_sentence_group),
+                                'chapter': self.current_chapter
                             },
                             section_title=f"{clause_title} - 句子组{chunk_index - start_index + 1}"
                         )
@@ -360,7 +433,8 @@ class LegalDocumentChunker(ChunkingStrategy):
                     'strategy': 'legal_document',
                     'clause_type': 'sub_clause',
                     'parent_clause': clause_title,
-                    'content_length': len(current_sub_chunk)
+                    'content_length': len(current_sub_chunk),
+                    'chapter': self.current_chapter
                 },
                 section_title=f"{clause_title} - 分段{chunk_index - start_index + 1}"
             )

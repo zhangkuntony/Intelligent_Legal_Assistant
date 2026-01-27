@@ -57,7 +57,7 @@ CREATE TABLE documents (
     file_path VARCHAR(500) NOT NULL,
     file_size BIGINT NOT NULL,
     file_category VARCHAR(50) NOT NULL,
-    status VARCHAR(20) DEFAULT 'processing' CHECK (status IN ('processing', 'completed', 'failed')),
+    status VARCHAR(20) DEFAULT 'processing' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
     processing_error TEXT,
     total_chunks INTEGER DEFAULT 0,
     processed_chunks INTEGER DEFAULT 0,

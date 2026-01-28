@@ -4,5 +4,4 @@ __pycache__/
 node_modules/
 logs/
 volumes/
-backend/app/core/config.py
 knowledge_document/

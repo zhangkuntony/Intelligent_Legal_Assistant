@@ -14,3 +14,6 @@ class DocumentCategory(Base):
     description = Column(String(200))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self):
+        return f"<DocumentCategory(id={self.id}, name={self.category_name}, code={self.category_code})>"

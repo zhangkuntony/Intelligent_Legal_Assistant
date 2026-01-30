@@ -348,7 +348,3 @@ class MilvusVectorStore:
 
 # 全局Milvus服务实例
 milvus_store = MilvusVectorStore()
-
-
-
-

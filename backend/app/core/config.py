@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     # AI服务配置
     LLM_API_KEY: Optional[str] = "d5ef8378-b9b6-4c76-98ee-c55ebda4954d"
     LLM_BASE_URL: Optional[str] = "https://ark.cn-beijing.volces.com/api/v3"
-    LLM_MODEL: str = "doubao-1-5-pro-32k-250115"
+    LLM_MODEL: str = "deepseek-v3-2-251201"
     EMBEDDING_MODEL_URL: Optional[str] = "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal"
     EMBEDDING_MODEL: str = "doubao-embedding-vision-250615"
 
@@ -57,8 +57,8 @@ class Settings(BaseSettings):
 
     # MinIO对象存储配置
     MINIO_ENDPOINT: str = "localhost:9000"
-    MINIO_ACCESS_KEY: str = "uqDog1xApy0KOR0fVwx8"
-    MINIO_SECRET_KEY: str = "xas1b6kc4Wz4G5vgUDKrpOlBsRaQ88MTzkpL9EEa"
+    MINIO_ACCESS_KEY: str = "x3uXvINjX4NFMbS0nRsk"
+    MINIO_SECRET_KEY: str = "RaQnPLpjGLsDYWFzO2gjraoGTi9pg6Ps7I2oYldp"
     MINIO_SECURE: bool = False  # HTTP模式，生产环境建议HTTPS
     MINIO_BUCKET_NAME: str = "legal-documents"  # 文档存储桶名称
 

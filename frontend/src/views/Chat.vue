@@ -77,7 +77,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Upload, Microphone } from '@element-plus/icons-vue'
@@ -242,7 +242,6 @@ onMounted(() => {
 
 .conversation-item.active {
   background: #409EFF;
-  color: white;
 }
 
 .conversation-title {
@@ -309,7 +308,6 @@ onMounted(() => {
 
 .message.user .message-content {
   background: #409EFF;
-  color: white;
 }
 
 .message-header {

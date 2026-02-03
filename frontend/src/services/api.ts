@@ -39,7 +39,7 @@ api.interceptors.response.use(
       case 401:
         ElMessage.error('登录已过期，请重新登录')
         localStorage.removeItem('access_token')
-        window.location.href = '/login'
+        globalThis.location.href = '/login'
         break
       case 403:
         ElMessage.error('没有权限访问该资源')

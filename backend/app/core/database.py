@@ -31,18 +31,3 @@ async def get_db():
             yield session
         finally:
             await session.close()
-
-# 导入所有模型以确保它们被注册
-from ..models.conversation import Conversation, Message
-from ..models.document import Document, DocumentEmbedding
-from ..models.user import User
-
-# 建立模型关系（避免循环导入）
-User.conversations = relationship("Conversation", back_populates="user")
-User.documents = relationship("Document", back_populates="user")
-Conversation.user = relationship("User", back_populates="conversations")
-Conversation.messages = relationship("Message", back_populates="conversation")
-Message.conversation = relationship("Conversation", back_populates="messages")
-Document.user = relationship("User", back_populates="documents")
-Document.embeddings = relationship("DocumentEmbedding", back_populates="document")
-DocumentEmbedding.document = relationship("Document", back_populates="embeddings")

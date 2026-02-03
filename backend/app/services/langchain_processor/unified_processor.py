@@ -289,12 +289,19 @@ class UnifiedDocumentProcessor:
         threshold = threshold or self.config.get('similarity_threshold', 0.6)
 
         try:
+            # 构造输入对象
+            text_input = {
+                "text": query,
+                "type": "text"
+            }
+            inputs = [text_input]
+
             # 使用豆包SDK生成查询嵌入
-            resp = self.ark_client.embeddings.create(
-                model=self.config.get('embedding_model', 'doubao-embedding-text-240715'),
-                input=[query]
+            resp = self.ark_client.multimodal_embeddings.create(
+                model=self.config.get('embedding_model', 'doubao-embedding-vision-250615'),
+                input=inputs
             )
-            query_embedding = resp.data[0].embedding
+            query_embedding = resp.data.embedding
 
             # 在Milvus中搜索
             logger.info(f"搜索相似分块：query={query}, top_k={top_k}")

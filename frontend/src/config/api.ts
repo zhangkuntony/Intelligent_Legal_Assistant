@@ -22,10 +22,15 @@ export const API_CONFIG = {
       REFRESH: '/api/auth/refresh',
       PROFILE: '/api/auth/profile'
     },
-    CONVERSATIONS: {
-      BASE: '/api/conversations',
-      CREATE: '/api/conversations',
-      GET: (id: string) => `/api/conversations/${id}`
+    CHAT: {
+      BASE: '/api/chat',
+      SEND: '/api/chat/send',                                                                 // 发送消息
+      STREAM: '/api/chat/stream',                                                             // 流式发送消息
+      CONVERSATIONS: '/api/chat/conversations',                                               // 获取对话列表
+      CREATE_CONVERSATION: '/api/chat/conversations',                                         // 创建会话
+      CONVERSATION_DETAIL: (id: string) => `/api/chat/conversations/${id}`,                   // 获取对话详情
+      CONVERSATION_MESSAGES: (id: string) => `/api/chat/conversations/${id}/messages`,        // 获取对话消息
+      DELETE_CONVERSATION: (id: string) => `/api/chat/conversations/${id}`,                   // 删除对话
     }
   },
   

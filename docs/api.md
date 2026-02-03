@@ -116,40 +116,38 @@ Authorization: Bearer <access_token>
 }
 ```
 
-## 对话管理接口
+## 智能聊天接口
 
 ### 获取对话列表
 
-**GET** `/api/conversations/`
+**GET** `/api/chat/conversations`
 
 获取当前用户的对话列表
 
 **查询参数:**
-- `page`: 页码 (默认: 1)
-- `page_size`: 每页数量 (默认: 20)
-- `is_archived`: 是否归档 (true/false)
+- `skip`: 跳过的数量 (默认: 0)
+- `limit`: 返回的最大数量 (默认: 20, 最大: 100)
 
 **响应:**
 ```json
-{
-  "conversations": [
-    {
-      "id": "uuid",
-      "title": "劳动合同咨询",
-      "message_count": 15,
-      "last_message_at": "2025-01-01T10:00:00Z",
-      "created_at": "2025-01-01T09:00:00Z"
-    }
-  ],
-  "total": 50,
-  "page": 1,
-  "page_size": 20
-}
+[
+  {
+    "id": "uuid",
+    "user_id": "uuid",
+    "title": "劳动合同咨询",
+    "description": "关于劳动合同的咨询",
+    "is_archived": false,
+    "message_count": 15,
+    "last_message_at": "2025-01-01T10:00:00Z",
+    "created_at": "2025-01-01T09:00:00Z",
+    "updated_at": "2025-01-01T10:00:00Z"
+  }
+]
 ```
 
 ### 创建新对话
 
-**POST** `/api/conversations/`
+**POST** `/api/chat/conversations`
 
 创建新的对话会话
 
@@ -165,85 +163,185 @@ Authorization: Bearer <access_token>
 ```json
 {
   "id": "uuid",
+  "user_id": "uuid",
   "title": "新对话",
   "description": "对话描述",
-  "created_at": "2025-01-01T00:00:00Z"
+  "is_archived": false,
+  "message_count": 0,
+  "last_message_at": null,
+  "created_at": "2025-01-01T00:00:00Z",
+  "updated_at": "2025-01-01T00:00:00Z"
 }
 ```
 
 ### 获取对话详情
 
-**GET** `/api/conversations/{conversation_id}`
+**GET** `/api/chat/conversations/{conversation_id}`
 
-获取特定对话的详细信息
+获取特定对话的详细信息和消息历史
 
 **响应:**
 ```json
 {
   "conversation": {
     "id": "uuid",
+    "user_id": "uuid",
     "title": "劳动合同咨询",
     "description": "关于劳动合同的咨询",
-    "created_at": "2025-01-01T09:00:00Z"
+    "is_archived": false,
+    "message_count": 2,
+    "last_message_at": "2025-01-01T09:01:00Z",
+    "created_at": "2025-01-01T09:00:00Z",
+    "updated_at": "2025-01-01T09:01:00Z"
   },
   "messages": [
     {
       "id": "msg_uuid",
+      "conversation_id": "uuid",
       "role": "user",
       "content": "您好，我想咨询劳动合同问题",
+      "tokens_used": 0,
+      "meta_data": null,
       "created_at": "2025-01-01T09:00:00Z"
     },
     {
       "id": "msg_uuid2",
-      "role": "assistant", 
+      "conversation_id": "uuid",
+      "role": "assistant",
       "content": "根据《劳动合同法》...",
+      "tokens_used": 256,
+      "meta_data": null,
       "created_at": "2025-01-01T09:01:00Z"
     }
   ]
 }
 ```
 
-### 发送消息
+### 发送消息（智能聊天）
 
-**POST** `/api/conversations/{conversation_id}/messages`
+**POST** `/api/chat/send`
 
-在对话中发送消息
+发送消息并获取AI回复，执行完整的RAG流程
 
 **请求体:**
 ```json
 {
-  "content": "我想了解劳动合同解除的相关规定"
+  "content": "我想了解劳动合同解除的相关规定",
+  "conversation_id": "uuid (可选)",
+  "use_rag": true
 }
 ```
 
 **响应:**
 ```json
 {
-  "message": {
-    "id": "msg_uuid",
-    "role": "user",
-    "content": "我想了解劳动合同解除的相关规定",
-    "created_at": "2025-01-01T10:00:00Z"
+  "message_id": "msg_uuid",
+  "content": "根据《劳动合同法》相关规定，劳动合同解除分为...",
+  "intent": {
+    "is_legal": true,
+    "confidence": 0.95,
+    "legal_domain": "劳动法",
+    "explanation": "问题涉及劳动合同解除的法律规定"
   },
-  "assistant_response": {
-    "id": "assistant_uuid",
-    "role": "assistant",
-    "content": "根据《劳动合同法》第39条...",
-    "created_at": "2025-01-01T10:01:00Z"
+  "question_analysis": {
+    "original_question": "我想了解劳动合同解除的相关规定",
+    "key_entities": ["劳动合同", "解除"],
+    "legal_concepts": ["劳动合同解除", "劳动合同法"],
+    "optimized_query": "劳动合同解除 条件 规定",
+    "missing_info": []
+  },
+  "retrieved_docs": [
+    {
+      "document_id": "uuid",
+      "document_title": "劳动合同法全文",
+      "chunk_index": 10,
+      "chunk_content": "第三十九条 劳动者有下列情形之一的...",
+      "similarity": 0.92,
+      "metadata": {
+        "chapter": "第四章",
+        "section": "第三十九条"
+      }
+    }
+  ],
+  "tokens_used": 450,
+  "sources": [
+    {
+      "document_title": "劳动合同法全文",
+      "section": "第三十九条",
+      "relevance": 0.92
+    }
+  ]
+}
+```
+
+### 获取消息历史
+
+**GET** `/api/chat/conversations/{conversation_id}/messages`
+
+获取对话的消息列表
+
+**查询参数:**
+- `limit`: 返回的最大消息数量 (默认: 50, 最大: 200)
+
+**响应:**
+```json
+{
+  "conversation_id": "uuid",
+  "total_messages": 15,
+  "messages": [
+    {
+      "id": "msg_uuid",
+      "role": "user",
+      "content": "您好，我想咨询劳动合同问题",
+      "tokens_used": 0,
+      "meta_data": null,
+      "created_at": "2025-01-01T09:00:00Z"
+    },
+    {
+      "id": "msg_uuid2",
+      "role": "assistant",
+      "content": "根据《劳动合同法》...",
+      "tokens_used": 256,
+      "meta_data": null,
+      "created_at": "2025-01-01T09:01:00Z"
+    }
+  ]
+}
+```
+
+### 更新对话
+
+**PUT** `/api/chat/conversations/{conversation_id}`
+
+更新对话的标题和描述
+
+**查询参数:**
+- `title`: 新标题 (可选)
+- `description`: 新描述 (可选)
+
+**响应:**
+```json
+{
+  "message": "对话更新成功",
+  "conversation": {
+    "id": "uuid",
+    "title": "新标题",
+    "description": "新描述",
+    "updated_at": "2025-01-01T10:00:00Z"
   }
 }
 ```
 
-### 归档对话
+### 删除对话
 
-**PATCH** `/api/conversations/{conversation_id}/archive`
+**DELETE** `/api/chat/conversations/{conversation_id}`
 
-归档或取消归档对话
+删除对话及其所有消息
 
-**请求体:**
+**响应:**
 ```json
 {
-  "is_archived": true
+  "message": "对话删除成功"
 }
 ```
 
@@ -481,19 +579,56 @@ async function login(username, password) {
   return data;
 }
 
-// 发送消息
-async function sendMessage(conversationId, content) {
+// 发送消息（智能聊天）
+async function sendMessage(content, conversationId = null) {
   const token = localStorage.getItem('access_token');
-  
-  const response = await fetch(`/api/conversations/${conversationId}/messages`, {
+
+  const response = await fetch('/api/chat/send', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
-    body: JSON.stringify({ content })
+    body: JSON.stringify({
+      content,
+      conversation_id: conversationId,
+      use_rag: true
+    })
   });
-  
+
+  return await response.json();
+}
+
+// 获取对话列表
+async function getConversations(skip = 0, limit = 20) {
+  const token = localStorage.getItem('access_token');
+
+  const response = await fetch(`/api/chat/conversations?skip=${skip}&limit=${limit}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  return await response.json();
+}
+
+// 创建新对话
+async function createConversation(title = "新对话", description = null) {
+  const token = localStorage.getItem('access_token');
+
+  const response = await fetch('/api/chat/conversations', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      title,
+      description
+    })
+  });
+
   return await response.json();
 }
 ```
@@ -513,13 +648,22 @@ response = requests.post("http://localhost:8000/api/auth/login", json=login_data
 data = response.json()
 token = data["access_token"]
 
-# 发送消息
+# 发送消息（智能聊天）
 headers = {"Authorization": f"Bearer {token}"}
-message_data = {"content": "法律问题咨询"}
+message_data = {
+    "content": "法律问题咨询",
+    "use_rag": True
+}
 
 response = requests.post(
-    "http://localhost:8000/api/conversations/conversation_id/messages",
+    "http://localhost:8000/api/chat/send",
     json=message_data,
+    headers=headers
+)
+
+# 获取对话列表
+response = requests.get(
+    "http://localhost:8000/api/chat/conversations?skip=0&limit=20",
     headers=headers
 )
 ```

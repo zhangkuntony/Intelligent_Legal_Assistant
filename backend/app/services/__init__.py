@@ -1,6 +1,8 @@
 """
 服务包初始化文件
 """
+# 对话服务
+from .chat.chat_service import ChatService, chat_service
 
 # 意图识别服务
 from .chat.intent_service import IntentService, intent_service
@@ -24,6 +26,9 @@ from .storage.minio_service import MinIOStorageService, minio_service
 from .vector_store.milvus_service import MilvusVectorStore, milvus_store
 
 __all__ = [
+    # 对话服务
+    "ChatService",
+    "chat_service",
     # 意图识别
     "IntentService",
     "intent_service",

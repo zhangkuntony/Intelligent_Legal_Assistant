@@ -71,7 +71,7 @@ sequenceDiagram
     FP->>DM: 更新处理状态
 
     U->>F: 提问法律问题
-    F->>API: POST /api/conversations/message
+    F->>API: POST /api/chat/send
     API->>VS: 向量检索
     VS->>DB: 查询相似文档
     VS->>QA: 返回检索结果
@@ -269,11 +269,11 @@ Authorization: Bearer {token}
 }
 ```
 
-### 2. 对话管理API
+### 2. 智能聊天API
 
 #### 创建对话
 ```http
-POST /api/conversations
+POST /api/chat/conversations
 Authorization: Bearer {token}
 Content-Type: application/json
 
@@ -285,67 +285,121 @@ Content-Type: application/json
 
 响应:
 {
-    "conversation_id": "uuid",
+    "id": "uuid",
+    "user_id": "uuid",
     "title": "劳动合同咨询",
-    "created_at": "2024-01-01T00:00:00Z"
+    "description": "关于劳动合同解除的咨询",
+    "is_archived": false,
+    "message_count": 0,
+    "last_message_at": null,
+    "created_at": "2024-01-01T00:00:00Z",
+    "updated_at": "2024-01-01T00:00:00Z"
 }
 ```
 
-#### 发送消息
+#### 发送消息（智能RAG聊天）
 ```http
-POST /api/conversations/{conversation_id}/messages
+POST /api/chat/send
 Authorization: Bearer {token}
 Content-Type: application/json
 
 请求体:
 {
-    "message": "劳动合同解除需要哪些条件？",
+    "content": "劳动合同解除需要哪些条件？",
+    "conversation_id": "uuid (可选)",
     "use_rag": true
 }
 
 响应:
 {
     "message_id": "uuid",
-    "answer": "根据《劳动合同法》第四十条，用人单位解除劳动合同需要满足以下条件...",
+    "content": "根据《劳动合同法》第四十条，用人单位解除劳动合同需要满足以下条件...",
+    "intent": {
+        "is_legal": true,
+        "confidence": 0.95,
+        "legal_domain": "劳动法",
+        "explanation": "问题涉及劳动合同解除的法律规定"
+    },
+    "question_analysis": {
+        "original_question": "劳动合同解除需要哪些条件？",
+        "key_entities": ["劳动合同", "解除"],
+        "legal_concepts": ["劳动合同解除", "劳动合同法"],
+        "optimized_query": "劳动合同解除 条件 规定",
+        "missing_info": []
+    },
+    "retrieved_docs": [
+        {
+            "document_id": "uuid",
+            "document_title": "劳动合同法",
+            "chunk_index": 15,
+            "chunk_content": "第四十条 有下列情形之一的...",
+            "similarity": 0.89,
+            "metadata": {
+                "chapter": "第四章",
+                "section": "第四十条"
+            }
+        }
+    ],
+    "tokens_used": 420,
     "sources": [
         {
             "document_title": "劳动合同法",
-            "chunk_content": "第四十条 有下列情形之一的...",
-            "similarity_score": 0.89
+            "section": "第四十条",
+            "relevance": 0.89
         }
-    ],
-    "confidence": 0.92,
-    "suggested_questions": [
-        "解除劳动合同的经济补偿如何计算？",
-        "哪些情况下可以立即解除劳动合同？"
     ]
 }
 ```
 
 #### 获取对话历史
 ```http
-GET /api/conversations/{conversation_id}/messages?skip=0&limit=50
+GET /api/chat/conversations/{conversation_id}/messages?limit=50
 Authorization: Bearer {token}
 
 响应:
 {
+    "conversation_id": "uuid",
+    "total_messages": 2,
     "messages": [
         {
             "id": "uuid",
             "role": "user",
             "content": "劳动合同解除需要哪些条件？",
-            "timestamp": "2024-01-01T00:00:00Z"
+            "tokens_used": 0,
+            "meta_data": null,
+            "created_at": "2024-01-01T00:00:00Z"
         },
         {
             "id": "uuid",
-            "role": "assistant", 
+            "role": "assistant",
             "content": "根据《劳动合同法》第四十条...",
-            "sources": [...],
-            "timestamp": "2024-01-01T00:00:05Z"
+            "tokens_used": 420,
+            "meta_data": null,
+            "created_at": "2024-01-01T00:00:05Z"
         }
-    ],
-    "total": 2
+    ]
 }
+```
+
+#### 获取对话列表
+```http
+GET /api/chat/conversations?skip=0&limit=20
+Authorization: Bearer {token}
+
+响应:
+[
+    {
+        "id": "uuid",
+        "user_id": "uuid",
+        "title": "劳动合同咨询",
+        "description": "关于劳动合同解除的咨询",
+        "is_archived": false,
+        "message_count": 2,
+        "last_message_at": "2024-01-01T00:00:05Z",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:05Z"
+    }
+]
 ```
 
 ### 3. 系统管理API

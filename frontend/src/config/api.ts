@@ -22,11 +22,6 @@ export const API_CONFIG = {
       REFRESH: '/api/auth/refresh',
       PROFILE: '/api/auth/profile'
     },
-    CONVERSATIONS: {
-      BASE: '/api/conversations',
-      CREATE: '/api/conversations',
-      GET: (id: string) => `/api/conversations/${id}`
-    },
     CHAT: {
       BASE: '/api/chat',
       SEND: '/api/chat/send',                                                                 // 发送消息

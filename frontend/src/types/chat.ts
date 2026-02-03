@@ -1,5 +1,9 @@
 // 聊天相关类型定义
 
+// ========================================
+// 意图识别相关类型
+// ========================================
+
 /**
  * 意图分类结果
  */
@@ -26,6 +30,9 @@ export type LegalCategory =
   | 'contract'        // 合同
   | 'other'           // 其他
 
+// ========================================
+// 问题分析相关类型
+// ========================================
 
 /**
  * 问题分析结果
@@ -47,6 +54,10 @@ export interface EntityExtraction {
     confidence: number                  // 提取置信度
 }
 
+// ========================================
+// RAG检索相关类型
+// ========================================
+
 /**
  * 检索到的文档片段
  */
@@ -59,10 +70,97 @@ export interface RetrievedDoc {
     metadata?: Record<string, any>      // 额外元数据
 }
 
+// ========================================
+// 消息相关类型
+// ========================================
+
 /**
  * 消息角色枚举
  */
 export type MessageRole = 'user' | 'assistant' | 'system'
+
+/**
+ * 消息对象
+ */
+export interface Message {
+    id: string
+    conversation_id: string
+    role: MessageRole
+    content: string
+    tokens_used: number
+    meta_data?: Record<string, any>
+    created_at: string
+}
+
+// ========================================
+// 对话相关类型
+// ========================================
+
+/**
+ * 对话详情
+ */
+export interface ConversationDetail {
+    id: string
+    user_id: string
+    title: string
+    description?: string
+    is_archived: boolean
+    message_count: number
+    last_message_at?: string
+    created_at: string
+    updated_at: string
+}
+
+/**
+ * 对话基本信息（用于列表展示）
+ * 与 ConversationDetail 相同，但可以添加额外显示字段
+ */
+export interface Conversation {
+    id: string
+    user_id: string
+    title: string
+    description?: string
+    is_archived: boolean
+    message_count: number
+    last_message_at?: string
+    created_at: string
+    updated_at: string
+    // 可选：用于UI显示的额外字段（不从API获取，由前端计算）
+    display_time?: string               // 格式化后的时间
+    display_message_count?: string      // 格式化后的消息数量
+}
+
+/**
+ * 创建对话数据
+ */
+export interface CreateConversationData {
+    title?: string                       // 对话标题
+    description?: string                 // 对话描述
+}
+
+/**
+ * 获取对话详情的响应
+ */
+export interface ConversationWithMessages {
+    conversation: ConversationDetail
+    messages: Message[]
+}
+
+/**
+ * 搜索对话参数
+ */
+export interface SearchConversationParams {
+    page?: number
+    page_size?: number
+    skip?: number
+    limit?: number
+    keyword?: string
+    is_archived?: boolean
+}
+
+// ========================================
+// 聊天请求与响应类型
+// ========================================
 
 /**
  * 聊天请求
@@ -90,36 +188,13 @@ export interface ChatResponse {
 }
 
 /**
- * 创建对话数据
- */
-export interface CreateConversationData {
-    title?: string                       // 对话标题
-    description?: string                 // 对话描述
-}
-
-/**
- * 对话详情
- */
-export interface ConversationDetail {
-    id: string
-    user_id: string
-    title: string
-    description?: string
-    is_archived: boolean
-    message_count: number
-    last_message_at?: string
-    created_at: string
-    updated_at: string
-}
-
-/**
  * 流式消息数据
  */
 export interface StreamMessage {
     type: 'content' | 'thinking' | 'metadata' | 'done'
     content?: string                        // 消息内容
     thinking?: string                       // 思考过程
-    metadata?: {
+    meta_data?: {
         intent?: IntentClassification
         analysis?: QuestionAnalysis
         retrieved_docs?: RetrievedDoc[]
@@ -128,15 +203,9 @@ export interface StreamMessage {
     error?: string                          // 错误信息 
 }
 
-/**
- * 搜索对话参数
- */
-export interface SearchConversationParams {
-    page?: number
-    page_size?: number
-    keyword?: string
-    is_archived?: boolean
-}
+// ========================================
+// API响应包装类型
+// ========================================
 
 /**
  * API响应包装
@@ -146,4 +215,14 @@ export interface ApiResponse<T = any> {
     message?: string
     error?: string
     code?: number
+}
+
+/**
+ * 分页响应
+ */
+export interface PaginatedResponse<T> {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
 }

@@ -10,7 +10,7 @@
         <el-col :span="6">
           <el-card class="stat-card">
             <div class="stat-content">
-              <div class="stat-icon" style="color: #409EFF;">
+              <div class="stat-icon" style="color: #1064b8;">
                 <el-icon><ChatDotRound /></el-icon>
               </div>
               <div class="stat-info">
@@ -67,7 +67,7 @@
         <el-col :span="8">
           <el-card class="action-card" @click="$router.push('/chat')">
             <div class="action-content">
-              <el-icon size="48" color="#409EFF"><ChatDotRound /></el-icon>
+              <el-icon size="48" color="#1064b8"><ChatDotRound /></el-icon>
               <h3>开始对话</h3>
               <p>与AI法律助手进行智能对话</p>
             </div>

@@ -42,7 +42,7 @@ export const API_CONFIG = {
   
   // 请求配置
   REQUEST: {
-    TIMEOUT: 30000,
+    TIMEOUT: 180000,
     RETRY_COUNT: 3
   }
 } as const

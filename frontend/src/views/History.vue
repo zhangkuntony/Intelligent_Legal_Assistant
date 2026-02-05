@@ -50,7 +50,7 @@
         <el-table-column prop="title" label="对话标题" min-width="200">
           <template #default="{ row }">
             <div class="conversation-title" @click="viewConversation(row)">
-              <el-icon style="margin-right: 8px; color: #409EFF;">
+              <el-icon style="margin-right: 8px; color: #1064b8;">
                 <ChatDotRound />
               </el-icon>
               {{ row.title }}
@@ -133,7 +133,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -144,7 +144,7 @@ const showDetailDialog = ref(false)
 const selectedConversations = ref<any[]>([])
 
 const searchKeyword = ref('')
-const dateRange = ref([])
+const dateRange = ref<[Date, Date] | []>([])
 const filterType = ref('')
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -214,7 +214,7 @@ const filteredConversations = computed(() => {
     result = result.filter(conv => conv.type === filterType.value)
   }
   
-  if (dateRange.value && dateRange.value.length === 2) {
+  if (dateRange.value.length === 2) {
     const [start, end] = dateRange.value
     result = result.filter(conv => {
       const convDate = new Date(conv.startTime)
@@ -303,8 +303,8 @@ const clearHistory = async () => {
       }
     )
     
-    const selectedIds = selectedConversations.value.map(c => c.id)
-    conversations.value = conversations.value.filter(c => !selectedIds.includes(c.id))
+    const selectedIds = new Set(selectedConversations.value.map(c => c.id))
+    conversations.value = conversations.value.filter(c => !selectedIds.has(c.id))
     selectedConversations.value = []
     ElMessage.success('选中记录删除成功')
   } catch {
@@ -357,7 +357,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   cursor: pointer;
-  color: #409EFF;
+  color: #1064b8;
 }
 
 .conversation-title:hover {
@@ -416,7 +416,7 @@ onMounted(() => {
 }
 
 .message.user {
-  border-left: 3px solid #409EFF;
+  border-left: 3px solid #1064b8;
 }
 
 .message.assistant {

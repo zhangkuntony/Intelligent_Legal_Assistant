@@ -33,7 +33,7 @@
           :collapse="false"
           background-color="#304156"
           text-color="#bfcbd9"
-          active-text-color="#409EFF"
+          active-text-color="#1064b8"
         >
           <el-menu-item index="/dashboard">
             <el-icon><Odometer /></el-icon>
@@ -64,6 +64,10 @@
               <el-icon><ChatDotRound /></el-icon>
               <span>会话管理</span>
             </template>
+            <el-menu-item index="/chat">
+              <el-icon><ChatLineRound /></el-icon>
+              <span>智能对话</span>
+            </el-menu-item>
             <el-menu-item index="/history">历史记录</el-menu-item>
             <el-menu-item index="/conversation-analytics">会话分析</el-menu-item>
           </el-sub-menu>
@@ -93,7 +97,7 @@
 import { ref, computed, onMounted, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '../stores/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -342,7 +346,7 @@ onMounted(() => {
 /* 浮动对话按钮 */
 .floating-chat-button {
   position: fixed;
-  background: linear-gradient(135deg, #409EFF 0%, #67C23A 100%);
+  background: linear-gradient(135deg, #1064b8 0%, #67C23A 100%);
   color: white;
   padding: 16px 20px;
   border-radius: 50px;

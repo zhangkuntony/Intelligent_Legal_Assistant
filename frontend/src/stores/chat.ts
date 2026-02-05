@@ -11,6 +11,7 @@ import type {
     QuestionAnalysis,
     RetrievedDoc,
 } from '../types/chat'
+import { da } from "element-plus/es/locales.mjs";
 
 /**
  * 聊天状态管理 Store
@@ -128,7 +129,7 @@ export const useChatStore = defineStore('chat', () => {
             pagination.value.hasMore = data.length === pagination.value.limit
             pagination.value.skip += data.length
 
-            console.log(`加载对话成功：共${conversations.value.length}条}`)
+            console.log(`加载对话成功：共${conversations.value.length}条`)
         } catch (err: any) {
             console.error('加载对话列表失败：', err)
             error.value = err.message || '加载对话失败'
@@ -180,18 +181,30 @@ export const useChatStore = defineStore('chat', () => {
             const data = await chatService.getConversation(conversationId)
 
             // 更新消息列表
-            messages.value = data.messages
+            messages.value = data.messages || []
 
-            // 如果对话不在列表中，添加它
-            const exists = conversations.value.find(c => c.id === conversationId)
-            if (exists) {
-                // 更新现有对话的信息
-                const index = conversations.value.findIndex(c => c.id === conversationId)
-                if (index !== -1) {
-                    conversations.value[index] = data.conversation
-                }                
+            // 构建对话对象
+            const conversationObj = {
+                id: data.id,
+                user_id: data.user_id,
+                title: data.title,
+                description: data.description,
+                is_archived: data.is_archived ?? false,
+                message_count: data.message_count ?? 0,
+                last_message_at: data.last_message_at,
+                created_at: data.created_at,
+                updated_at: data.updated_at
+            }
+
+            // 查找对话在列表中的索引
+            const index = conversations.value.findIndex(c => c?.id === conversationId)
+
+            if (index === -1) {
+                // 添加新对话到列表
+                conversations.value.unshift(conversationObj)
             } else {
-                conversations.value.unshift(data.conversation)
+                // 更新现有对话的信息
+                conversations.value[index] = conversationObj
             }
 
             // 保存到本地缓存

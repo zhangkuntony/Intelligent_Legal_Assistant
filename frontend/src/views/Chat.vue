@@ -144,7 +144,7 @@
             <!-- AI 消息 -->
             <div v-else class="message assistant">
               <div class="message-avatar">
-                <el-avatar :size="36" :icon="ChatDotRound" style="background: #409EFF;" />
+                <el-avatar :size="36" :icon="ChatDotRound" style="background: #1064b8;" />
               </div>
               <div class="message-content">
                 <div class="message-header">
@@ -201,7 +201,7 @@
                 </div>
 
                 <!-- 消息内容 -->
-                <div class="message-text">{{ message.content }}</div>
+                <div class="message-text" v-html="parseMarkdown(message.content)"></div>
 
                 <!-- 来源文档引用 -->
                 <div v-if="message.meta_data?.retrieved_docs?.length > 0" class="retrieved-docs">
@@ -264,7 +264,7 @@
         <div v-if="sendingMessage" class="message-wrapper">
           <div class="message assistant">
             <div class="message-avatar">
-              <el-avatar :size="36" :icon="ChatDotRound" style="background: #409EFF;" />
+              <el-avatar :size="36" :icon="ChatDotRound" style="background: #1064b8;" />
             </div>
             <div class="message-content">
               <div class="message-header">
@@ -302,26 +302,26 @@
           <el-input
             v-model="inputMessage"
             type="textarea"
-            :rows="3"
+            :rows="5"
             placeholder="请输入您的法律问题，我将为您专业解答..."
-            @keydown.enter.ctrl="handleSendMessage"
-            :disabled="!currentConversation || sendingMessage"
+            @keydown="handleKeyDown"
+            :disabled="sendingMessage"
           />
           <el-button
             type="primary"
             :loading="sendingMessage"
-            :disabled="!inputMessage.trim() || !currentConversation"
+            :disabled="!inputMessage.trim() || sendingMessage"
             @click="handleSendMessage"
             class="send-button"
           >
             发送
-            <el-tooltip content="快捷键: Ctrl + Enter" placement="top">
+            <el-tooltip content="快捷键: Enter" placement="top">
               <el-icon style="margin-left: 4px;"><Position /></el-icon>
             </el-tooltip>
           </el-button>
         </div>
         <div class="input-hint">
-          按 Ctrl + Enter 快速发送
+          按 Enter 发送, Shift + Enter 换行
         </div>
       </div>
     </div>
@@ -351,6 +351,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useChatStore } from '../stores/chat';
 import { storeToRefs } from 'pinia';
+import { parseMarkdown } from '../utils/markdown'
 
 // Store
 const chatStore = useChatStore()
@@ -426,20 +427,17 @@ const getLegalCategoryText = (category: string): string => {
   return legalCategoryMap[category] || category
 }
 
+// 方法：清空并准备新对话（不创建后端数据）
+const clearAndPrepareNewChat = () => {
+  currentConversationId.value = null
+  messages.value = []
+  inputMessage.value = ''
+}
+
 // 方法：创建新对话
 const handleCreateConversation = async () => {
-  try {
-    creatingConversation.value = true
-    await createConversation({
-      title: '新对话'
-    })
-    inputMessage.value = ''
-    ElMessage.success('新对话已创建')
-  } catch (error: any) {
-    ElMessage.error(`创建对话失败: ${error.message}`)
-  } finally {
-    creatingConversation.value = false
-  }
+  // 清空状态准备新对话（不调用后端）
+  clearAndPrepareNewChat()
 }
 
 // 方法：切换对话
@@ -453,15 +451,43 @@ const handleSwitchConversation = async (conversationId: string) => {
   }
 }
 
+// 方法：处理按键事件
+const handleKeyDown = (event: KeyboardEvent) => {
+  // 如果同时按下了Shift+Enter键，则换行但不发送消息
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    handleSendMessage()
+  }
+}
+
 // 方法：发送消息
 const handleSendMessage = async () => { 
-  if (!inputMessage.value.trim() || !currentConversationId.value) {
+  if (!inputMessage.value.trim()) {
     return
   }
 
   const messageContent = inputMessage.value.trim()
   inputMessage.value = ''
 
+  // 如果没有当前对话，先创建新对话
+  if (!currentConversationId.value) {
+    try {
+      // 创建新对话
+      const newConversation = await createConversation({
+        title: '新对话'
+      })
+
+      // 发送消息到新对话
+      await sendMessage(messageContent, newConversation.id)
+      scrollToBottom()
+    } catch (error: any) {
+      inputMessage.value = messageContent
+      ElMessage.error(`发送消息失败：${error.message}`)
+    }
+    return
+  }
+
+  // 如果有当前对话，直接发送消息
   try {
     await sendMessage(messageContent, currentConversationId.value)
     scrollToBottom()
@@ -614,13 +640,14 @@ onMounted(async () => {
     // 检查URL参数是否有对话ID
     const conversationId = route.params.id as string
     if (conversationId) {
+      // 如果URL有对话ID，切换到该对话
       await handleSwitchConversation(conversationId)
     } else if (conversations.value.length > 0 && currentConversationId.value) {
       // 如果有对话但没有指定ID，使用第一个对话
       await handleSwitchConversation(currentConversationId.value)
     } else {
-      // 如果没有任何对话，创建新对话
-      await handleCreateConversation()
+      // 如果没有任何对话，清空状态准备新对话（不创建后端数据）
+      clearAndPrepareNewChat()
     }
   } catch (error: any) {
     ElMessage.error(`初始化失败：${error.message}`)
@@ -685,7 +712,7 @@ watch(() => route.params.id, async (newId) => {
 }
 
 .conversation-item.active {
-  background: #409EFF;
+  background: #1064b8;
 }
 
 .conversation-item.archived {
@@ -867,7 +894,6 @@ watch(() => route.params.id, async (newId) => {
   border-radius: 8px;
   line-height: 1.6;
   word-wrap: break-word;
-  white-space: pre-wrap;
 }
 
 .message.user .message-text {
@@ -895,7 +921,7 @@ watch(() => route.params.id, async (newId) => {
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
-  color: #409EFF;
+  color: #1064b8;
   transition: all 0.3s;
 }
 
@@ -945,7 +971,7 @@ watch(() => route.params.id, async (newId) => {
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
-  color: #409EFF;
+  color: #1064b8;
   transition: all 0.3s;
 }
 
@@ -964,7 +990,7 @@ watch(() => route.params.id, async (newId) => {
   padding: 12px;
   background: #f5f7fa;
   border-radius: 6px;
-  border-left: 3px solid #409EFF;
+  border-left: 3px solid #1064b8;
 }
 
 .doc-header {
@@ -1024,7 +1050,7 @@ watch(() => route.params.id, async (newId) => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #409EFF;
+  background: #1064b8;
   animation: typing 1.4s infinite;
 }
 
@@ -1063,7 +1089,7 @@ watch(() => route.params.id, async (newId) => {
 .input-container {
   display: flex;
   gap: 10px;
-  align-items: flex-end;
+  align-items: center;
 }
 
 .input-container :deep(.el-textarea) {
@@ -1076,9 +1102,10 @@ watch(() => route.params.id, async (newId) => {
 }
 
 .send-button {
-  height: 76px;
+  height: 40px;
+  padding: 0 20px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
   gap: 4px;
@@ -1086,10 +1113,11 @@ watch(() => route.params.id, async (newId) => {
 
 .send-button :deep(.el-button__content) {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
   gap: 4px;
+  height: auto;
 }
 
 .input-hint {
@@ -1140,5 +1168,148 @@ watch(() => route.params.id, async (newId) => {
 .conversation-list::-webkit-scrollbar-thumb:hover,
 .docs-content::-webkit-scrollbar-thumb:hover {
   background: #c0c4cc;
+}
+
+/* Markdown样式 */
+.message-text :deep(h1) {
+  font-size: 1.8em;
+  font-weight: 600;
+  margin: 0.8em 0 0.4em 0;
+  color: #303133;
+  border-bottom: 2px solid #409EFF;
+  padding-bottom: 0.3em;
+}
+
+.message-text :deep(h2) {
+  font-size: 1.5em;
+  font-weight: 600;
+  margin: 0.7em 0 0.35em 0;
+  color: #303133;
+  border-bottom: 1px solid #e4e7ed;
+  padding-bottom: 0.2em;
+}
+
+.message-text :deep(h3) {
+  font-size: 1.3em;
+  font-weight: 600;
+  margin: 0.6em 0 0.3em 0;
+  color: #303133;
+}
+
+.message-text :deep(h4) {
+  font-size: 1.1em;
+  font-weight: 600;
+  margin: 0.5em 0 0.25em 0;
+  color: #303133;
+}
+
+.message-text :deep(h5) {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 0.4em 0 0.2em 0;
+  color: #303133;
+}
+
+.message-text :deep(h6) {
+  font-size: 0.9em;
+  font-weight: 600;
+  margin: 0.3em 0 0.15em 0;
+  color: #606266;
+}
+
+.message-text :deep(p) {
+  margin: 0.5em 0;
+  line-height: 1.8;
+}
+
+.message-text :deep(ul),
+.message-text :deep(ol) {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.message-text :deep(li) {
+  margin: 0.25em 0;
+  line-height: 1.6;
+}
+
+.message-text :deep(ul li) {
+  list-style-type: disc;
+}
+
+.message-text :deep(ol li) {
+  list-style-type: decimal;
+}
+
+.message-text :deep(blockquote) {
+  margin: 1em 0;
+  padding: 0.5em 1.5em;
+  border-left: 4px solid #409EFF;
+  background: #f0f9ff;
+  color: #606266;
+  border-radius: 0 4px 4px 0;
+}
+
+.message-text :deep(code) {
+  background: #f5f7fa;
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
+  color: #e6a23c;
+}
+
+.message-text :deep(pre) {
+  background: #f5f7fa;
+  padding: 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+
+.message-text :deep(pre code) {
+  background: transparent;
+  padding: 0;
+}
+
+.message-text :deep(a) {
+  color: #409EFF;
+  text-decoration: none;
+  transition: all 0.3s;
+}
+
+.message-text :deep(a:hover) {
+  text-decoration: underline;
+  color: #66b1ff;
+}
+
+.message-text :deep(strong) {
+  font-weight: 600;
+  color: #303133;
+}
+
+.message-text :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.95em;
+}
+
+.message-text :deep(th),
+.message-text :deep(td) {
+  border: 1px solid #e4e7ed;
+  padding: 0.5em;
+  text-align: left;
+}
+
+.message-text :deep(th) {
+  background: #f5f7fa;
+  font-weight: 600;
+}
+
+.message-text :deep(hr) {
+  border: none;
+  border-top: 2px solid #e4e7ed;
+  margin: 1.5em 0;
 }
 </style>

@@ -10,7 +10,7 @@
       <el-col :span="6">
         <el-card class="stat-card">
           <div class="stat-content">
-            <div class="stat-icon" style="color: #409EFF;">
+            <div class="stat-icon" style="color: #1064b8;">
               <el-icon><ChatDotRound /></el-icon>
             </div>
             <div class="stat-info">

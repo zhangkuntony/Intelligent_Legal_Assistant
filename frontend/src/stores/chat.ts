@@ -184,14 +184,14 @@ export const useChatStore = defineStore('chat', () => {
 
             // 如果对话不在列表中，添加它
             const exists = conversations.value.find(c => c.id === conversationId)
-            if (!exists) {
-                conversations.value.unshift(data.conversation)
-            } else {
+            if (exists) {
                 // 更新现有对话的信息
                 const index = conversations.value.findIndex(c => c.id === conversationId)
                 if (index !== -1) {
                     conversations.value[index] = data.conversation
-                }
+                }                
+            } else {
+                conversations.value.unshift(data.conversation)
             }
 
             // 保存到本地缓存

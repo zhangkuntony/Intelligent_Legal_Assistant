@@ -264,7 +264,7 @@ const getFileIcon = (type: string) => {
 
 const getFileColor = (type: string) => {
   const colorMap: Record<string, string> = {
-    contract: '#409EFF',
+    contract: '#1064b8',
     case: '#67C23A',
     legal: '#E6A23C',
     laws: '#909399'

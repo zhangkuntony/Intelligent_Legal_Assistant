@@ -141,8 +141,7 @@ export interface CreateConversationData {
 /**
  * 获取对话详情的响应
  */
-export interface ConversationWithMessages {
-    conversation: ConversationDetail
+export interface ConversationWithMessages extends ConversationDetail {
     messages: Message[]
 }
 

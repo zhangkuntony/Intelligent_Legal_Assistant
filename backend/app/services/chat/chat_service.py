@@ -690,10 +690,12 @@ class ChatService:
         """
         async with AsyncSessionLocal() as db:
             from sqlalchemy import select, desc
+            from sqlalchemy.orm import selectinload
 
-            # 查询对话列表
+            # 查询对话列表，预加载消息关系
             stmt = (
                 select(Conversation)
+                .options(selectinload(Conversation.messages))
                 .where(Conversation.user_id == user_id)
                 .where(Conversation.is_archived == False)
                 .order_by(desc(Conversation.updated_at))
@@ -707,8 +709,10 @@ class ChatService:
             return [
                 {
                     "id": str(conv.id),
+                    "user_id": str(conv.user_id),
                     "title": conv.title,
                     "description": conv.description,
+                    "is_archived": conv.is_archived,
                     "message_count": len(conv.messages),
                     "last_message_at": conv.messages[-1].created_at if conv.messages else None,
                     "created_at": conv.created_at,

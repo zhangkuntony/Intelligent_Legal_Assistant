@@ -105,7 +105,7 @@ class LegalChunkerAdapter(BaseChunkerAdapter):
             分块列表
         """
         # 使用LegalDocumentChunker分割
-        chunks = self.legal_chunker.chunk_text(text)
+        chunks = self.legal_chunker.chunk_text(text, metadata or {})
 
         # 合并元数据（包括图片信息）
         for chunk in chunks:

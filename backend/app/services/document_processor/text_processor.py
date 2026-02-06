@@ -5,7 +5,7 @@
 import chardet
 from typing import Dict, Any, List
 
-from .base_processor import BaseDocumentProcessor, ProcessedDocument, DocumentChunk
+from .base_processor import BaseDocumentProcessor, DocumentChunk
 from .exceptions import ExtractionError
 
 
@@ -30,6 +30,24 @@ class TextProcessor(BaseDocumentProcessor):
 
         except Exception as e:
             raise ExtractionError(f"文本文件读取失败: {str(e)}")
+
+    async def extract_metadata(self, file_path: str) -> Dict[str, Any]:
+        """提取文本文件元数据"""
+        try:
+            metadata = await super().extract_metadata(file_path)
+
+            # 对于txt文件，使用文件名作为document_title
+            from pathlib import Path
+            file_name = Path(file_path).stem        # 去掉扩展名
+
+            # 添加文档标题
+            metadata['document_title'] = file_name
+
+            return metadata
+
+        except Exception as e:
+            # 元数据提取失败不影响主要功能
+            return await super().extract_metadata(file_path)
 
     async def detect_encoding(self, file_path: str) -> str:
         """自动检测文件编码"""

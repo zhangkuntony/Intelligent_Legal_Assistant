@@ -190,7 +190,8 @@ export interface ChatResponse {
  * 流式消息数据
  */
 export interface StreamMessage {
-    type: 'content' | 'thinking' | 'metadata' | 'done'
+    type: 'intent' | 'analysis' | 'retrieved_docs' | 'content' | 'done' | 'start' | 'error'
+    data?: IntentClassification | QuestionAnalysis | RetrievedDoc[]
     content?: string                        // 消息内容
     thinking?: string                       // 思考过程
     meta_data?: {
@@ -199,7 +200,9 @@ export interface StreamMessage {
         retrieved_docs?: RetrievedDoc[]
         tokens_used?: number
     }
-    error?: string                          // 错误信息 
+    error?: string
+    message?: string
+    tokens_used?: number
 }
 
 // ========================================

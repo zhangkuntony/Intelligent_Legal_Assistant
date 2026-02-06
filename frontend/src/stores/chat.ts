@@ -10,6 +10,7 @@ import type {
     Message,
     QuestionAnalysis,
     RetrievedDoc,
+    StreamMessage
 } from '../types/chat'
 import { da } from "element-plus/es/locales.mjs";
 
@@ -285,6 +286,182 @@ export const useChatStore = defineStore('chat', () => {
         } catch (err: any) { 
             console.error('发送消息失败：', err)
             error.value = err.message || '发送消息失败'
+            throw err
+        } finally { 
+            sendingMessage.value = false
+        }
+    }
+
+    /**
+     * 流式发送消息
+     * @param content 消息内容
+     * @param conversationId 对话ID
+     * @param onContentChunk 内容块的回调
+     */
+    const sendMessageStream = async (
+        content: string,
+        conversationId?: string,
+        onContentChunk?: (chunk: string) => void
+    ) => {
+        try {
+            sendingMessage.value = true
+            error.value = null
+
+            // 构建请求
+            const request: ChatRequest = {
+                content,
+                conversation_id: conversationId || currentConversationId.value || undefined,
+                top_k: 5,
+                include_thinking: true,
+            }
+
+            // 乐观更新：立即在本地显示用户消息
+            const tempUserId = `temp-user-${Date.now()}`
+            const userMessage: Message = {
+                id: tempUserId,
+                conversation_id: conversationId || currentConversationId.value || '',
+                role: 'user',
+                content: content,
+                tokens_used: 0,
+                created_at: new Date().toISOString(),
+            }
+
+            messages.value.push(userMessage)
+
+            // 更新对话的 message_count
+            const convIndex = conversations.value.findIndex(
+                c => c.id === (conversationId || currentConversationId.value)
+            )
+            if (convIndex !== -1) {
+                conversations.value[convIndex].message_count++
+                conversations.value[convIndex].last_message_at = userMessage.created_at
+            }
+
+            // 创建临时AI消息对象（流式填充内容）
+            const tempAiId = `temp-ai-${Date.now()}`
+            let fullContent = ''
+
+            const tempAiMessage: Message = {
+                id: tempAiId,
+                conversation_id: conversationId || currentConversationId.value || '',
+                role: 'assistant',
+                content: '',
+                tokens_used: 0,
+                meta_data: {
+                    _isStreaming: true
+                },
+                created_at: new Date().toISOString()
+            }
+
+            messages.value.push(tempAiMessage)
+
+            // 辅助函数：更新临时AI消息并触发响应式更新
+            const updateTempMessage = (updates: Partial<Message>) => {
+                const aiMessageIndex = messages.value.findIndex(m => m.id === tempAiId)
+                if (aiMessageIndex !== -1) {
+                    messages.value[aiMessageIndex] = {
+                        ...messages.value[aiMessageIndex],
+                        ...updates
+                    }
+                }
+            }
+
+            // 调用流式API
+            await chatService.sendMessageStream(
+                request, 
+                (chunk: StreamMessage) => {
+                    if (chunk.type === 'content' && chunk.content) {
+                        fullContent += chunk.content
+                        updateTempMessage({ content: fullContent })
+
+                        // 调用内容块回调
+                        onContentChunk?.(chunk.content)
+                    } else if (chunk.type === 'intent' && chunk.data) {
+                        updateTempMessage({
+                            meta_data: {
+                                ...tempAiMessage.meta_data,
+                                intent: chunk.data
+                            }
+                        })
+                    } else if (chunk.type === 'analysis' && chunk.data) { 
+                        updateTempMessage({
+                            meta_data: {
+                                ...tempAiMessage.meta_data,
+                                analysis: chunk.data
+                            }
+                        })
+                    } else if (chunk.type === 'retrieved_docs' && chunk.data) { 
+                        updateTempMessage({
+                            meta_data: {
+                                ...tempAiMessage.meta_data,
+                                retrieved_docs: chunk.data
+                            }
+                        })
+                    } else if (chunk.type === 'done') { 
+                        updateTempMessage({ tokens_used: chunk.tokens_used || 0 })
+                    } else if (chunk.type === 'error') { 
+                        throw new Error(chunk.message || '生成回复失败')
+                    }
+                },
+
+                async (finalResponse) => {
+                    // 移除临时消息的 _isStreaming 标记
+                    const aiMessageIndex = messages.value.findIndex(m => m.id === tempAiId)
+                    if (aiMessageIndex !== -1) {
+                        const { _isStreaming, ...cleanMetaData } = messages.value[aiMessageIndex].meta_data || {}
+                        messages.value[aiMessageIndex] = {
+                            ...messages.value[aiMessageIndex],
+                            meta_data: cleanMetaData
+                        }
+                    }
+
+                    // 重新获取对话信息以获取更新后的标题
+                    const targetConversationId = conversationId || currentConversationId.value
+                    if (targetConversationId) {
+                        try {
+                            // 调用API获取最新的对话详情（包含更新后的标题）
+                            const conversationData = await chatService.getConversation(targetConversationId)
+
+                            // 更新对话列表中的标题
+                            const convIndex = conversations.value.findIndex(c => c.id === targetConversationId)
+                            if (convIndex !== -1) {
+                                conversations.value[convIndex] = {
+                                    ...conversations.value[convIndex],
+                                    title: conversationData.title,
+                                    message_count: conversationData.message_count,
+                                    last_message_at: conversationData.last_message_at,
+                                    updated_at: conversationData.updated_at
+                                }
+                                console.log('对话标题已更新:', conversationData.title)
+                            }
+
+                            // 如果是当前对话，将对话置顶
+                            moveConversationToTop(targetConversationId)
+                        } catch (err) { 
+                            console.warn('获取对话详情失败，保持原标题：', err)
+                            // 即使失败也要置顶对话
+                            moveConversationToTop(targetConversationId)
+                        }
+                    } else {
+                        console.warn('当前对话ID为空，无法更新对话位置')
+                    }
+
+                    console.log('流式发送消息完成：', finalResponse)
+                },
+                (error) => {
+                    throw error
+                }
+            )
+        } catch (err: any) {
+            console.error('流式发送消息失败：', err)
+            error.value = err.message || '发送消息失败'
+
+            // 移除临时消息
+            const aiIndex = messages.value.findIndex(m => m.id.startsWith('temp-ai-'))
+            if (aiIndex !== -1) {
+                messages.value.splice(aiIndex, 1)
+            }
+
             throw err
         } finally { 
             sendingMessage.value = false
@@ -720,6 +897,7 @@ export const useChatStore = defineStore('chat', () => {
         createConversation,
         switchConversation,
         sendMessage,
+        sendMessageStream,
         regenerateResponse,
         deleteConversation,
         batchDeleteConversations,

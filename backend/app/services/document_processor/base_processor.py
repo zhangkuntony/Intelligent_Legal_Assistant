@@ -100,8 +100,8 @@ class BaseDocumentProcessor(ABC):
             # 预处理文本
             preprocessed_text = await self.preprocess_text(extracted_text)
 
-            # 分块处理
-            chunks = await self.chunk_text(preprocessed_text, **kwargs)
+            # 分块处理（传递文档metadata以便每个chunk都能访问）
+            chunks = await self.chunk_text(preprocessed_text, document_metadata=metadata, **kwargs)
 
             # 创建处理结果
             processing_stats = ProcessingStats(start_time=start_time, end_time=datetime.now())

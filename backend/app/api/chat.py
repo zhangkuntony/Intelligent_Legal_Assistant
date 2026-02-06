@@ -3,8 +3,8 @@
 提供对话管理、消息发送、历史查询等接口
 """
 
-from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
@@ -12,11 +12,12 @@ from typing import List, Optional
 
 from ..core.database import get_db
 from ..core.security import get_current_user
-from ..models.chat import ChatRequest, ChatResponse, RetrievedDoc, ConversationCreate, ConversationDetail
-from ..models.conversation import Conversation, Message
+from ..models.chat import ChatRequest, ChatResponse, ConversationCreate, ConversationDetail
+from ..models.conversation import Conversation
 from ..models.user import User
 from ..services.chat.chat_service import chat_service
 
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,66 @@ async def send_message(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"消息处理失败：{str(e)}"
         )
+
+@router.post("/send/stream")
+async def send_message_stream(
+        request: ChatRequest,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """
+    发送消息并获取AI回复（流式）
+
+    这是聊天功能的核心接口，会执行以下流程
+    1. 获取或创建对话
+    2. 保存用户消息
+    3. 意图识别
+    4. 问题理解
+    5. RAG检索（如果是法律问题）
+    6. LLM生成回复
+    7. 保存AI消息
+    8. 返回完整响应
+
+    使用 Server-Sent Events (SSE) 流式返回数据
+    实时显示AI生成的每个字
+    返回类型包括：intent, analysis, retrieved_docs, content, done, error
+
+    Args:
+        request: 聊天请求，包含消息内容、对话ID等
+        current_user: 当前登录用户
+        db: 数据库会话
+
+    Returns:
+        StreamingResponse: SSE流式响应
+    """
+    async def generate() :
+        try:
+            logger.info(
+                f"用户发送流式消息：user_id={current_user.id}，"
+                f"conversation_id={request.conversation_id}，"
+                f"content={request.content[:50]}"
+            )
+
+            # 调用ChatService的流式生成方法
+            async for chunk in chat_service.generate_response_stream(
+                request=request,
+                user_id=str(current_user.id)
+            ):
+                yield chunk
+
+        except Exception as e:
+            logger.error(f"流式消息处理失败：{e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"           # 禁用Nginx缓冲
+        }
+    )
 
 @router.get("/conversations", response_model=List[ConversationDetail])
 async def get_conversations(

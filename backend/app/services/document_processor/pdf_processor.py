@@ -2,12 +2,10 @@
 PDF文档处理器
 """
 from dataclasses import dataclass
-from io import BytesIO
 from typing import Dict, Any, List
 
 from .base_processor import BaseDocumentProcessor, DocumentChunk
 from .exceptions import ExtractionError
-from ..storage.minio_service import minio_service
 
 import logging
 
@@ -102,7 +100,7 @@ class PDFProcessor(BaseDocumentProcessor):
                 # 文档信息
                 if pdf_reader.metadata:
                     pdf_metadata.update({
-                        'title': pdf_reader.metadata.get('/Title'),
+                        'document_title': pdf_reader.metadata.get('/Title'),
                         'author': pdf_reader.metadata.get('/Author'),
                         'subject': pdf_reader.metadata.get('/Subject'),
                         'creator': pdf_reader.metadata.get('/Creator'),

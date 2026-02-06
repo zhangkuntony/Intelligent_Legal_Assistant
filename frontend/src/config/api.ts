@@ -1,4 +1,5 @@
 // frontend/src/config/api.ts
+/// <reference types="vite/client" />
 // API 配置常量
 export const API_CONFIG = {
   // 基础 URL - 优先使用环境变量，否则使用默认值
@@ -25,7 +26,7 @@ export const API_CONFIG = {
     CHAT: {
       BASE: '/api/chat',
       SEND: '/api/chat/send',                                                                 // 发送消息
-      STREAM: '/api/chat/stream',                                                             // 流式发送消息
+      STREAM: '/api/chat/send/stream',                                                        // 流式发送消息
       CONVERSATIONS: '/api/chat/conversations',                                               // 获取对话列表
       CREATE_CONVERSATION: '/api/chat/conversations',                                         // 创建会话
       CONVERSATION_DETAIL: (id: string) => `/api/chat/conversations/${id}`,                   // 获取对话详情

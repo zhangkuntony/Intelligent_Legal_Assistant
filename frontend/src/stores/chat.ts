@@ -238,6 +238,29 @@ export const useChatStore = defineStore('chat', () => {
                 include_thinking: false,
             }
 
+            // 乐观更新：立即在本地显示用户消息
+            const tempMessageId = `temp-${Date.now()}`                  // 临时ID
+            const userMessage: Message = {
+                id: tempMessageId,
+                conversation_id: conversationId || currentConversationId.value || '',
+                role: 'user',
+                content: content,
+                tokens_used: 0,
+                created_at: new Date().toISOString(),
+            }
+
+            // 立即添加用户消息到列表
+            messages.value.push(userMessage)
+
+            // 更新对话的 message_count
+            const convIndex = conversations.value.findIndex(
+                c => c.id === (conversationId || currentConversationId.value)
+            )
+            if (convIndex !== -1) {
+                conversations.value[convIndex].message_count++
+                conversations.value[convIndex].last_message_at = userMessage.created_at
+            }
+
             // 调用API发送消息
             const response = await chatService.sendMessage(reqeust)
 

@@ -203,6 +203,16 @@ class ChatService:
             # 获取已有对话
             conversation = await db.get(Conversation, conversation_id)
             if conversation:
+                # 如果对话标题是默认值或为空，生成新标题
+                if not conversation.title or conversation.title in ['新对话', '新会话']:
+                    try:
+                        title = await self._generate_conversation_title(first_message)
+                        conversation.title = title
+                        await db.flush()
+                        logger.info(f"更新对话标题：{conversation_id} => {title}")
+                    except Exception as e:
+                        logger.warning(f"生成对话标题失败：{e}, 保持原标题")
+
                 return conversation, False
 
         # 生成对话标题
@@ -746,6 +756,179 @@ class ChatService:
 
             logger.info(f"删除对话：conversation_id={conversation.id}")
             return True
+
+    async def generate_response_stream(
+            self,
+            request: ChatRequest,
+            user_id: str = None
+    ):
+        """
+         生成对话回复（流式版本）
+
+        流程：
+        1. 获取或创建对话
+        2. 保存用户消息到数据库
+        3. 意图识别
+        4. 问题理解
+        5. RAG检索
+        6. LLM流式生成回复
+        7. 保存AI消息到数据库
+        8. 流式返回响应
+
+        Args:
+            request: 聊天请求
+            user_id: 用户ID（可选）
+
+        Yields:
+            流式响应数据（JSON字符串）
+        """
+        async with AsyncSessionLocal() as db:
+            import json
+            try:
+                from asyncio import sleep
+
+                # 1. 获取或创建对话
+                conversation, is_new_conversation = await self._get_or_create_conversation(
+                    db,
+                    request.conversation_id,
+                    user_id,
+                    request.content
+                )
+
+                # 2. 保存用户消息
+                user_message = await self._save_user_message(
+                    db,
+                    conversation.id,
+                    request.content
+                )
+
+                logger.info(
+                    f"开始流式处理对话: conversation_id={conversation.id}, "
+                    f"is_new={is_new_conversation}"
+                )
+
+                # 3. 意图识别
+                logger.info("步骤1：意图识别")
+                intent_result = self.intent_service.classify_intent(
+                    query=request.content,
+                    use_cache=True
+                )
+
+                # 发送意图结果
+                yield f"data: {json.dumps({'type': 'intent', 'data': intent_result.model_dump()})}\n\n"
+
+                # 4. 问题理解
+                logger.info("步骤2：问题理解")
+                analysis_result = self.question_analyzer.analyze_question(
+                    query=request.content,
+                    intent_result=intent_result
+                )
+
+                # 发送问题分析结果
+                yield f"data: {json.dumps({'type': 'analysis', 'data': analysis_result.model_dump()})}\n\n"
+
+                # 5. RAG检索
+                retrieved_docs = []
+                if intent_result.is_legal_related:
+                    logger.info("步骤3：RAG检索")
+                    search_query = analysis_result.query_for_retrieval or request.content
+                    retrieved_docs = self.rag_service.retrieve_relevant_docs(
+                        query=search_query,
+                        top_k=request.top_k,
+                        threshold=0.6,
+                        enable_rerank=True,
+                        enable_deduplication=True
+                    )
+
+                    # 发送检索结果
+                    yield f"data: {json.dumps({'type': 'retrieved_docs', 'data': [doc.model_dump() for doc in retrieved_docs]})}\n\n"
+                else:
+                    logger.info("步骤3：跳过RAG检索（非法律问题）")
+                    yield f"data: {json.dumps({'type': 'retrieved_docs', 'data': []})}\n\n"
+
+                # 6. LLM流式生成回复
+                logger.info("步骤4：LLM流式生成回复")
+
+                # 获取对话历史
+                conversation_history = await self._get_conversation_history(
+                    db,
+                    conversation.id,
+                    max_messages=6,
+                    exclude_latest=True
+                )
+
+                # 构建完整回复内容
+                full_response = ""
+                tokens_used = 0
+
+                # 构建prompt
+                system_prompt = self._build_system_prompt(intent_result, analysis_result)
+                context = self._build_retrieval_context(retrieved_docs)
+                user_prompt = self._build_user_prompt(request.content, context)
+
+                messages = [
+                    {"role": "system", "content": system_prompt}
+                ]
+                for msg in conversation_history:
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+                messages.append({"role": "user", "content": user_prompt})
+
+                # 发送开始标记
+                yield f"data: {json.dumps({'type': 'start'})}\n\n"
+
+                # 调用LLM流式生成
+                try:
+                    resp_stream = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=messages,
+                        temperature=0.7,
+                        max_tokens=2000,
+                        stream=True             # 启用流式
+                    )
+
+                    # 逐块返回内容
+                    for chunk in resp_stream:
+                        if chunk.choices and chunk.choices[0].delta.content:
+                            content = chunk.choices[0].delta.content
+                            full_response += content
+
+                            # 发送内容块
+                            yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
+
+                    # 获取token使用量
+                    tokens_used = len(full_response.split())
+
+                    # 发送结束标记
+                    yield f"data: {json.dumps({'type': 'done', 'tokens_used': tokens_used})}\n\n"
+
+                except Exception as e:
+                    logger.error(f"LLM流式生成失败：{e}", exc_info=True)
+                    yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                    raise
+
+                # 7. 保存AI消息到数据库
+                logger.info("步骤5：保存AI消息")
+                ai_message = await self._save_assistant_message(
+                    db,
+                    conversation.id,
+                    full_response,
+                    tokens_used,
+                    retrieved_docs,
+                    intent_result,
+                    analysis_result
+                )
+
+                # 更新对话时间
+                conversation.updated_at = datetime.now()
+                await db.commit()
+
+                logger.info(f"流式对话处理完成：message_id={ai_message.id}")
+
+            except Exception as e:
+                logger.error(f"流式生成回复失败{e}", exc_info=True)
+                await db.rollback()
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                raise
 
 # 创建全局实例
 chat_service = ChatService()

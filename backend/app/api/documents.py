@@ -658,6 +658,7 @@ async def process_document(
                 'user_id': str(current_user.id),
                 'file_category': document.file_category,
                 'title': document.title,
+                'document_title': document.title,
                 'minio_object': document.file_path,
                 'minio_bucket': settings.MINIO_BUCKET_NAME
             }

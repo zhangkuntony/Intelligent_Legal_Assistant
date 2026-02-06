@@ -80,7 +80,7 @@ class WordProcessor(BaseDocumentProcessor):
 
             # 文档属性
             word_metadata = {
-                'title': core_props.title,
+                'document_title': core_props.title,
                 'author': core_props.author,
                 'subject': core_props.subject,
                 'keywords': core_props.keywords,

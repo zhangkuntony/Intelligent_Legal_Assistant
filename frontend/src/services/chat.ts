@@ -10,7 +10,8 @@ import type {
     Message,
     IntentClassification,
     QuestionAnalysis,
-    RetrievedDoc
+    RetrievedDoc,
+    StreamMessage
 } from '../types/chat'
 
 /**
@@ -46,21 +47,24 @@ export const chatService = {
         }
     },
 
-    /**
-     * 流式发送消息（可选功能）
-     * 支持Server-Sent Events (SSE) 或 WebSocket
-     * 注意：后端需要支持流式响应
+   /**
+     * 流式发送消息
+     * 使用 Server-Sent Events (SSE) 逐块接收AI回复
      * 
      * @param data - 聊天请求参数
-     * @param onMessage - 收到消息片段的回调
+     * @param onChunk - 收到每个数据块的回调
      * @param onComplete - 完成的回调
      * @param onError - 错误的回调
      * 
      * @example
      * ```typescript
      * await chatService.sendMessageStream(
-     *   { content: '...' },
-     *   (chunk) => console.log(chunk),
+     *   { content: '...', conversation_id: '...' },
+     *   (chunk) => {
+     *     if (chunk.type === 'content') {
+     *       console.log('收到内容：', chunk.content)
+     *     }
+     *   },
      *   () => console.log('完成'),
      *   (err) => console.error(err)
      * )
@@ -68,12 +72,12 @@ export const chatService = {
      */
     async sendMessageStream(
         data: ChatRequest,
-        onMessage: (chunk: string) => void,
-        onComplete?: () => void,
+        onChunk: (chunk: StreamMessage) => void,
+        onComplete?: (finalResponse?: ChatResponse) => void,
         onError?: (error: Error) => void
     ): Promise<void> { 
         try {
-            const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.CHAT.SEND}`, {
+            const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.CHAT.STREAM}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -92,16 +96,46 @@ export const chatService = {
             }
 
             const decoder = new TextDecoder()
+            let buffer = ''
 
             while (true) {
                 const { done, value } = await reader.read()
                 if (done) break
 
-                const chunk = decoder.decode(value)
-                onMessage(chunk)
+                buffer += decoder.decode(value, { stream: true })
+
+                // 处理 SSE 数据（按\n\n分割）
+                const lines = buffer.split('\n\n')
+                buffer = lines.pop() || ''          // 保留未完成的部分
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6))
+                            onChunk(data)
+
+                            if (data.type === 'done' && onComplete) {
+                                // 构造完整的ChatResponse
+                                onComplete({
+                                    message_id: '',
+                                    conversation_id: data.conversation_id || '',
+                                    content: '',
+                                    intent: (data).intent || {} as any,
+                                    analysis: (data as any).analysis || {} as any,
+                                    retrieved_docs: [],
+                                    tokens_used: data.tokens_used || 0,
+                                    created_at: new Date().toISOString()
+                                })
+                            }
+                        } catch (e) {
+                            console.error('解析SSE数据失败：', e, line)
+                        }
+                    }
+                }
             }
 
-            onComplete?.()
+            if (onComplete)
+                onComplete()
         } catch (error) {
             console.error('流式发送消息失败：', error)
             onError?.(error as Error)

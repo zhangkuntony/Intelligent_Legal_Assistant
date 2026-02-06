@@ -201,7 +201,15 @@
                 </div>
 
                 <!-- 消息内容 -->
-                <div class="message-text" v-html="parseMarkdown(message.content)"></div>
+                <div class="message-text">
+                  <!-- 流式消息且内容为空时显示loading -->
+                  <span v-if="message.meta_data?._isStreaming && !message.content" class="streaming-loader">
+                    <el-icon class="is-loading"><Loading /></el-icon>
+                    正在思考...
+                  </span>
+                  <!-- 正常内容显示 -->
+                  <span v-else v-html="parseMarkdown(message.content)"></span>
+                </div>
 
                 <!-- 来源文档引用 -->
                 <div v-if="message.meta_data?.retrieved_docs?.length > 0" class="retrieved-docs">
@@ -255,25 +263,6 @@
                     复制
                   </el-button>
                 </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 发送中状态 -->
-        <div v-if="sendingMessage" class="message-wrapper">
-          <div class="message assistant">
-            <div class="message-avatar">
-              <el-avatar :size="36" :icon="ChatDotRound" style="background: #1064b8;" />
-            </div>
-            <div class="message-content">
-              <div class="message-header">
-                <span class="message-sender">AI法律助手</span>
-              </div>
-              <div class="typing-indicator">
-                <span></span>
-                <span></span>
-                <span></span>
               </div>
             </div>
           </div>
@@ -347,7 +336,8 @@ import {
   DataLine,
   ArrowDown,
   ArrowRight,
-  Position
+  Position,
+  Loading
 } from '@element-plus/icons-vue'
 import { useChatStore } from '../stores/chat';
 import { storeToRefs } from 'pinia';
@@ -376,6 +366,7 @@ const {
   loadConversations,
   regenerateResponse,
   sendMessage,
+  sendMessageStream,
   switchConversation,
   updateConversation
 } = chatStore
@@ -478,8 +469,15 @@ const handleSendMessage = async () => {
       })
 
       // 发送消息到新对话
-      await sendMessage(messageContent, newConversation.id)
-      scrollToBottom()
+      await sendMessageStream(
+        messageContent,
+        newConversation.id,
+        (chunk) => {
+          // 内容块回调
+          console.log('收到内容块：', chunk)
+          scrollToBottom()                    // 每次收到内容块都滚动到底部
+        }
+      )
     } catch (error: any) {
       inputMessage.value = messageContent
       ElMessage.error(`发送消息失败：${error.message}`)
@@ -487,10 +485,16 @@ const handleSendMessage = async () => {
     return
   }
 
-  // 如果有当前对话，直接发送消息
+  // 如果有当前对话，使用流式发送消息
   try {
-    await sendMessage(messageContent, currentConversationId.value)
-    scrollToBottom()
+    await sendMessageStream(
+      messageContent,
+      currentConversationId.value,
+      (chunk) => {
+        // 内容块回调
+        scrollToBottom()
+      }    
+    )
   } catch (error: any) {
     inputMessage.value = messageContent
     ElMessage.error(`发送消息失败: ${error.message}`)
@@ -1311,5 +1315,27 @@ watch(() => route.params.id, async (newId) => {
   border: none;
   border-top: 2px solid #e4e7ed;
   margin: 1.5em 0;
+}
+
+/* 流式加载动画 */
+.streaming-loader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #909399;
+  font-size: 14px;
+}
+
+.streaming-loader .el-icon {
+  animation: rotate 1.5s linear infinite;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

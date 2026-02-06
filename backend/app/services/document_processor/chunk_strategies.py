@@ -4,7 +4,7 @@
 import logging
 import re
 from abc import ABC, abstractmethod
-from typing import List
+from typing import Any, Dict, List
 
 from .base_processor import DocumentChunk
 
@@ -13,8 +13,17 @@ class ChunkingStrategy(ABC):
     """分块策略基类"""
 
     @abstractmethod
-    def chunk_text(self, text: str, **kwargs) -> List[DocumentChunk]:
-        """将文本分割成块"""
+    def chunk_text(self, text: str, document_metadata: Dict[str, Any], **kwargs) -> List[DocumentChunk]:
+        """将文本分割成块
+
+        Args:
+            text: 待分块的文本
+            document_metadata: 文档级别的metadata（包含document_title等）
+            **kwargs: 其他参数
+
+        Returns:
+            分块列表
+        """
         pass
 
 
@@ -25,7 +34,7 @@ class FixedSizeChunker(ChunkingStrategy):
         self.chunk_size = chunk_size
         self.overlap = overlap
 
-    def chunk_text(self, text: str, **kwargs) -> List[DocumentChunk]:
+    def chunk_text(self, text: str, document_metadata: Dict[str, Any], **kwargs) -> List[DocumentChunk]:
         """固定大小分块"""
         chunks = []
         start = 0
@@ -52,7 +61,8 @@ class FixedSizeChunker(ChunkingStrategy):
                     'overlap': self.overlap,
                     'start_pos': start,
                     'end_pos': end,
-                    'content_length': len(chunk_content)
+                    'content_length': len(chunk_content),
+                    **(document_metadata or {})                 # 添加文档级别的metadata
                 }
             )
 
@@ -76,7 +86,7 @@ class SemanticChunker(ChunkingStrategy):
         self.max_chunk_size = max_chunk_size
         self.min_chunk_size = min_chunk_size
 
-    def chunk_text(self, text: str, **kwargs) -> List[DocumentChunk]:
+    def chunk_text(self, text: str, document_metadata: Dict[str, Any], **kwargs) -> List[DocumentChunk]:
         """语义分块"""
         chunks = []
         chunk_index = 0
@@ -104,7 +114,8 @@ class SemanticChunker(ChunkingStrategy):
                             'strategy': 'semantic',
                             'max_chunk_size': self.max_chunk_size,
                             'min_chunk_size': self.min_chunk_size,
-                            'content_length': len(current_chunk)
+                            'content_length': len(current_chunk),
+                            **(document_metadata or {})                     # 添加文档级别的metadata
                         }
                     )
                     chunks.append(chunk)
@@ -127,7 +138,8 @@ class SemanticChunker(ChunkingStrategy):
                     'strategy': 'semantic',
                     'max_chunk_size': self.max_chunk_size,
                     'min_chunk_size': self.min_chunk_size,
-                    'content_length': len(current_chunk)
+                    'content_length': len(current_chunk),
+                    **(document_metadata or {})                 # 添加文档级别的metadata
                 }
             )
             chunks.append(chunk)
@@ -162,7 +174,18 @@ class LegalDocumentChunker(ChunkingStrategy):
         ]
         self.current_chapter = ""
 
-    def chunk_text(self, text: str, **kwargs) -> List[DocumentChunk]:
+    def chunk_text(self, text: str, document_metadata: Dict[str, Any], **kwargs) -> List[DocumentChunk]:
+        """法律文档分块
+
+        Args:
+            text: 待分块的文本
+            document_metadata: 文档级别的metadata（包含document_title等）
+            **kwargs: 其他参数
+
+        Returns:
+            分块列表
+        """
+
         logger = logging.getLogger(__name__)
 
         """法律文档分块"""
@@ -214,7 +237,8 @@ class LegalDocumentChunker(ChunkingStrategy):
                                 'clause_type': 'legal_clause',
                                 'clause_title': current_title,
                                 'chapter': current_chapter,
-                                'content_length': len(current_clause)
+                                'content_length': len(current_clause),
+                                **(document_metadata or {})
                             },
                             section_title=current_title
                         )
@@ -249,7 +273,8 @@ class LegalDocumentChunker(ChunkingStrategy):
                                 'clause_type': 'legal_clause',
                                 'clause_title': current_title,
                                 'chapter': current_chapter,
-                                'content_length': len(current_clause)
+                                'content_length': len(current_clause),
+                                **(document_metadata or {})
                             },
                             section_title=current_title
                         )
@@ -294,7 +319,8 @@ class LegalDocumentChunker(ChunkingStrategy):
                         'clause_type': 'legal_clause',
                         'clause_title': current_title,
                         'chapter': current_chapter,
-                        'content_length': len(current_clause)
+                        'content_length': len(current_clause),
+                        **(document_metadata or {})
                     },
                     section_title=current_title
                 )

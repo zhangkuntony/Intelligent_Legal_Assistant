@@ -42,16 +42,19 @@ async def get_document_categories(
 
     # 3. 组装返回数据
     return {
-        "document_categories": [
-            {
-                "id": str(category.id),
-                "category_name": category.category_name,
-                "category_code": category.category_code,
-                "description": category.description,
-                "document_count": count_dict.get(category.category_name, 0),        # 根据category_name统计
-                "created_at": category.created_at,
-                "updated_at": category.updated_at
-            }
-            for category in document_categories
-        ],
+        "success": True,
+        "data": {
+            "document_categories": [
+                {
+                    "id": str(category.id),
+                    "category_name": category.category_name,
+                    "category_code": category.category_code,
+                    "description": category.description,
+                    "document_count": count_dict.get(category.category_code, 0),  # 根据category_name统计
+                    "created_at": category.created_at,
+                    "updated_at": category.updated_at
+                }
+                for category in document_categories
+            ]
+        }
     }

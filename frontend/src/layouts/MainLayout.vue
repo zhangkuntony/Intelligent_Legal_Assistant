@@ -47,7 +47,6 @@
             </template>
             <el-menu-item index="/users">用户列表</el-menu-item>
             <el-menu-item index="/user-roles">角色管理</el-menu-item>
-            <el-menu-item index="/user-permissions">权限管理</el-menu-item>
           </el-sub-menu>
           
           <el-sub-menu index="document-management">
@@ -64,10 +63,7 @@
               <el-icon><ChatDotRound /></el-icon>
               <span>会话管理</span>
             </template>
-            <el-menu-item index="/chat">
-              <el-icon><ChatLineRound /></el-icon>
-              <span>智能对话</span>
-            </el-menu-item>
+            <el-menu-item index="/chat">智能对话</el-menu-item>
             <el-menu-item index="/history">历史记录</el-menu-item>
             <el-menu-item index="/conversation-analytics">会话分析</el-menu-item>
           </el-sub-menu>
@@ -97,7 +93,7 @@
 import { ref, computed, onMounted, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useAuthStore } from '../stores/auth'
+import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()

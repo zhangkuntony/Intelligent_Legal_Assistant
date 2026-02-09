@@ -1,9 +1,8 @@
 import { request } from './api'
-import { API_CONFIG } from '../config/api'
+import { API_CONFIG } from '@/config/api'
 import type {
     ChatRequest,
     ChatResponse,
-    Conversation,
     ConversationDetail,
     ConversationWithMessages,
     CreateConversationData,
@@ -12,7 +11,7 @@ import type {
     QuestionAnalysis,
     RetrievedDoc,
     StreamMessage
-} from '../types/chat'
+} from '@/types/chat'
 
 /**
  * 聊天API服务
@@ -121,7 +120,7 @@ export const chatService = {
                                     conversation_id: data.conversation_id || '',
                                     content: '',
                                     intent: (data).intent || {} as any,
-                                    analysis: (data as any).analysis || {} as any,
+                                    analysis: (data).analysis || {} as any,
                                     retrieved_docs: [],
                                     tokens_used: data.tokens_used || 0,
                                     created_at: new Date().toISOString()
@@ -342,7 +341,7 @@ export const chatService = {
             const lowerKeyword = keyword.toLowerCase()
             return conversations.filter(conv => 
                 conv.title.toLowerCase().includes(lowerKeyword) ||
-                (conv.description && conv.description.toLowerCase().includes(lowerKeyword))
+                (conv.description?.toLowerCase().includes(lowerKeyword))
             )
         } catch (error) {
             console.error('搜索对话失败：', error)

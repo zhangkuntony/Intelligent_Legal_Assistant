@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
-import { chatService } from "../services/chat";
+import { chatService } from "@/services/chat";
 import type {
     ChatRequest,
     ChatResponse,
@@ -11,8 +11,7 @@ import type {
     QuestionAnalysis,
     RetrievedDoc,
     StreamMessage
-} from '../types/chat'
-import { da } from "element-plus/es/locales.mjs";
+} from '@/types/chat'
 
 /**
  * 聊天状态管理 Store
@@ -129,8 +128,6 @@ export const useChatStore = defineStore('chat', () => {
             // 更新分页状态
             pagination.value.hasMore = data.length === pagination.value.limit
             pagination.value.skip += data.length
-
-            console.log(`加载对话成功：共${conversations.value.length}条`)
         } catch (err: any) {
             console.error('加载对话列表失败：', err)
             error.value = err.message || '加载对话失败'
@@ -156,8 +153,6 @@ export const useChatStore = defineStore('chat', () => {
             // 自动切换到新对话
             currentConversationId.value = conversation.id
             messages.value = []
-
-            console.log('创建对话成功：', conversation)
             return conversation
         } catch (err: any) {
             console.error('创建对话失败：', err)
@@ -210,8 +205,6 @@ export const useChatStore = defineStore('chat', () => {
 
             // 保存到本地缓存
             saveConversationToCache(conversationId, data.messages)
-
-            console.log(`切换到对话 ${conversationId}，消息数：${data.messages.length}`)
         } catch (err: any) {
             console.error('切换对话失败:', err)
             error.value = err.message || '加载对话失败'
@@ -280,8 +273,6 @@ export const useChatStore = defineStore('chat', () => {
 
             // 更新对话在列表中的位置（置顶）
             moveConversationToTop(response.conversation_id)
-
-            console.log('发送消息成功：', response)
             return response
         } catch (err: any) { 
             console.error('发送消息失败：', err)
@@ -432,7 +423,6 @@ export const useChatStore = defineStore('chat', () => {
                                     last_message_at: conversationData.last_message_at,
                                     updated_at: conversationData.updated_at
                                 }
-                                console.log('对话标题已更新:', conversationData.title)
                             }
 
                             // 如果是当前对话，将对话置顶
@@ -445,8 +435,6 @@ export const useChatStore = defineStore('chat', () => {
                     } else {
                         console.warn('当前对话ID为空，无法更新对话位置')
                     }
-
-                    console.log('流式发送消息完成：', finalResponse)
                 },
                 (error) => {
                     throw error
@@ -491,8 +479,6 @@ export const useChatStore = defineStore('chat', () => {
 
             // 重新发送相同的用户消息
             await sendMessage(userMessage.content, userMessage.conversation_id)
-
-            console.log('重新生成回复成功')
         } catch (err: any) { 
             console.error('重新生成回复失败：', err)
             error.value = err.message || '重新生成回复失败'
@@ -521,8 +507,6 @@ export const useChatStore = defineStore('chat', () => {
 
             // 清除本地缓存
             removeConversationFromCache(conversationId)
-
-            console.log('删除对话成功：', conversationId)
         } catch (err: any) { 
             console.error('删除对话失败：', err)
             error.value = err.message || '删除对话失败'
@@ -553,8 +537,6 @@ export const useChatStore = defineStore('chat', () => {
 
             // 清除所有相关缓存
             conversationIds.forEach(id => removeConversationFromCache(id))
-
-            console.log('批量删除对话成功：', result)
             return result
         } catch (err: any) { 
             console.error('批量删除对话失败：', err)
@@ -591,8 +573,6 @@ export const useChatStore = defineStore('chat', () => {
                     ...result.conversation
                 }
             }
-
-            console.log('更新对话成功：', result.conversation)
             return result.conversation
         } catch (err: any) { 
             console.error('更新对话失败：', err)
@@ -659,7 +639,6 @@ export const useChatStore = defineStore('chat', () => {
             if (useCache) {
                 const cached = getConversationFromCache(conversationId)
                 if (cached) {
-                    console.log('从缓存加载消息：', conversationId)
                     messages.value = cached
                     return
                 }
@@ -777,8 +756,6 @@ export const useChatStore = defineStore('chat', () => {
 
             // 删除所有缓存键
             keysToRemove.forEach(key => localStorage.removeItem(key))
-
-            console.log(`清空了 ${keysToRemove.length} 个缓存条目`)
         } catch (err) {
             console.error('清空缓存失败:', err)
         }

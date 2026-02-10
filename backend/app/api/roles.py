@@ -3,18 +3,42 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from typing import List
+from typing import List, Optional
 
 from ..core.database import get_db
 from ..core.security import get_current_user
+from ..models.permissions import RolePermission, Permission
 from ..models.user import User
-from ..models.role import Role, Permission, RolePermission, UserRole
+from ..models.role import Role, UserRole
+from ..utils.permission_helper import has_permission
 
 router = APIRouter()
 
+
+# Pydantic 模型定义
+class RoleCreate(BaseModel):
+    """创建角色的请求模型"""
+    name: str = Field(..., min_length=2, max_length=50, description="角色名称")
+    code: str = Field(..., min_length=2, max_length=50, pattern="^[a-z_]+$", description="角色代码")
+    description: Optional[str] = Field(None, description="角色描述")
+
+
+class RoleUpdate(BaseModel):
+    """更新角色的请求模型"""
+    name: Optional[str] = Field(None, min_length=2, max_length=50, description="角色名称")
+    description: Optional[str] = Field(None, description="角色描述")
+
+
+class PermissionAssign(BaseModel):
+    """分配权限的请求模型"""
+    permission_ids: List[str] = Field(..., description="权限ID列表")
+
+
+# ==================== 角色路由 ====================
 
 @router.get("")
 async def get_roles(
@@ -56,6 +80,44 @@ async def get_roles(
     return {
         "roles": role_list,
         "total": len(role_list)
+    }
+
+@router.post("")
+async def create_role(
+        role_data: RoleCreate,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """创建角色"""
+    if not await has_permission(current_user, "role:create", db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="没有权限创建角色"
+        )
+
+    # 检查角色代码是否已存在
+    existing_result = await db.execute(select(Role).where(Role.code == role_data.code))
+    if existing_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="角色代码已存在"
+        )
+
+    # 创建角色
+    role = Role(
+        name=role_data.name,
+        code=role_data.code,
+        description=role_data.description,
+        is_system=False
+    )
+
+    db.add(role)
+    await db.commit()
+    await db.refresh(role)
+
+    return {
+        "message": "角色创建成功",
+        "role": role.to_dict()
     }
 
 @router.get("/{role_id}")
@@ -101,51 +163,10 @@ async def get_role(
     return role_dict
 
 
-@router.post("")
-async def create_role(
-        name: str,
-        code: str,
-        description: str = None,
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
-):
-    """创建角色"""
-    if not await has_permission(current_user, "role:create", db):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="没有权限创建角色"
-        )
-
-    # 检查角色代码是否已存在
-    existing_result = await db.execute(select(Role).where(Role.code == code))
-    if existing_result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="角色代码已存在"
-        )
-
-    # 创建角色
-    role = Role(
-        name=name,
-        code=code,
-        description=description,
-        is_system=False
-    )
-
-    db.add(role)
-    await db.commit()
-    await db.refresh(role)
-
-    return {
-        "message": "角色创建成功",
-        "role": role.to_dict()
-    }
-
 @router.put("/{role_id}")
 async def update_role(
         role_id: str,
-        name: str = None,
-        description: str = None,
+        role_data: RoleUpdate,
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
@@ -174,10 +195,10 @@ async def update_role(
         )
 
     # 更新字段
-    if name is not None:
-        role.name = name
-    if description is not None:
-        role.description = description
+    if role_data.name is not None:
+        role.name = role_data.name
+    if role_data.description is not None:
+        role.description = role_data.description
 
     await db.commit()
     await db.refresh(role)
@@ -236,7 +257,7 @@ async def delete_role(
 @router.post("/{role_id}/permissions")
 async def assign_permissions(
         role_id: str,
-        permission_ids: List[str],
+        assign_data: PermissionAssign,
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
@@ -266,15 +287,15 @@ async def assign_permissions(
         )
 
     # 删除原有权限
-    await db.execute(
+    existing_result = await db.execute(
         select(RolePermission).where(RolePermission.role_id == role.id)
     )
-    existing_permissions = result.scalars().all()
+    existing_permissions = existing_result.scalars().all()
     for rp in existing_permissions:
         await db.delete(rp)
 
     # 添加新权限
-    for perm_id in permission_ids:
+    for perm_id in assign_data.permission_ids:
         # 验证权限是否存在
         perm_result = await db.execute(
             select(Permission).where(Permission.id == perm_id)
@@ -290,25 +311,6 @@ async def assign_permissions(
 
     return {"message": "权限分配成功"}
 
-@router.get("/permissions/all")
-async def get_all_permissions(
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
-):
-    """获取所有权限列表"""
-    if not await has_permission(current_user, "role:view", db):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="没有权限查看权限列表"
-        )
-
-    result = await db.execute(select(Permission))
-    permissions = result.scalars().all()
-
-    return {
-        "permissions": [perm.to_dict() for perm in permissions],
-        "total": len(permissions)
-    }
 
 @router.get("/{role_id}/permissions")
 async def get_role_permissions(
@@ -336,21 +338,3 @@ async def get_role_permissions(
         "permissions": permissions,
         "total": len(permissions)
     }
-
-async def has_permission(user: User, permission_code: str, db: AsyncSession) -> bool:
-    """检查用户是否有指定权限"""
-    # 超级管理员拥有所有权限
-    if user.is_superuser:
-        return True
-
-    # 查询用户的角色和权限
-    result = await db.execute(
-        select(Permission)
-        .join(RolePermission, Permission.id == RolePermission.permission_id)
-        .join(Role, RolePermission.role_id == Role.id)
-        .join(UserRole, Role.id == UserRole.role_id)
-        .where(UserRole.user_id == user.id)
-        .where(Permission.code == permission_code)
-    )
-
-    return result.scalar_one_or_none() is not None

@@ -1,5 +1,11 @@
 import request from '@/services/api'
-import type { Role, RoleDetail, Permission, CreateRoleData, UpdateRoleData } from '@/types/role'
+import type { 
+    Role, 
+    RoleDetail,
+    CreateRoleData, 
+    UpdateRoleData
+} from '@/types/role'
+import type { Permission } from '@/types/permissions'
 
 export const roleService = {
     /**
@@ -42,13 +48,6 @@ export const roleService = {
     },
 
     /**
-     * 获取所有权限列表
-     */
-    async getAllPermissions(): Promise<{ permissions: Permission[]; total: number}> {
-        return request.get('/api/roles/permissions/all')
-    },
-
-    /**
      * 获取角色权限
      */
     async getRolePermissions(roleId: string): Promise<{ permissions: Permission[]; total: number }> {
@@ -60,5 +59,5 @@ export const roleService = {
      */
     async assignPermissions(roleId: string, permissionIds: string[]): Promise<void> {
         return request.post(`/api/roles/${roleId}/permissions`, { permission_ids: permissionIds })
-    },
+    }
 }

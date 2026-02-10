@@ -1,3 +1,5 @@
+import { Permission } from './permissions'
+
 export interface Role {
     id: string
     name: string
@@ -7,15 +9,6 @@ export interface Role {
     user_count: number
     created_at: string
     updated_at: string
-}
-
-export interface Permission {
-    id: string
-    name: string
-    code: string
-    module: string
-    description: string
-    created_at: string
 }
 
 export interface RoleDetail extends Role {

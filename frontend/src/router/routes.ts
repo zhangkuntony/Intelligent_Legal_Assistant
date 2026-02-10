@@ -49,6 +49,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/user/UserRoles.vue'),
       },
       {
+        path: 'permissions',
+        name: 'Permissions',
+        component: () => import('@/views/user/Permissions.vue'),
+      },
+      {
         path: 'document-categories',
         name: 'DocumentCategories',
         component: () => import('@/views/document/DocumentCategories.vue'),

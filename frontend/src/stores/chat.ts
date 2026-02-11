@@ -47,7 +47,12 @@ export const useChatStore = defineStore('chat', () => {
     const error = ref<string | null>(null)
 
     /** 分页参数 */
-    const pagination = ref({
+    const pagination = ref<{
+        skip: number
+        limit: number
+        hasMore: boolean
+        total?: number  // 添加 total 字段
+    }>({
         skip: 0,
         limit: 20,
         hasMore: true
@@ -97,22 +102,21 @@ export const useChatStore = defineStore('chat', () => {
     // Actions - 异步操作
     // ========================================
 
-    /**
-     * 加载对话列表
+        /**
+     * 加载对话列表（对话页面专用，只加载当前用户的对话）
      * @param refresh 是否刷新（重置分页）
      */
-    const loadConversations = async (refresh = false) => {
-        try {
-            loadingConversations.value = true
-            error.value = null
+    const loadConversations = async (refresh: boolean = false) => {
+        loadingConversations.value = true
+        error.value = null
 
-            // 如果刷新，重置分页
+        try {
             if (refresh) {
                 pagination.value = { skip: 0, limit: 20, hasMore: true }
             }
 
-            // 加载对话列表
-            const data = await chatService.getConversations(
+            // 加载当前用户的对话列表
+            const { conversations: data, total } = await chatService.getMyConversations(
                 pagination.value.skip,
                 pagination.value.limit
             )
@@ -126,6 +130,7 @@ export const useChatStore = defineStore('chat', () => {
             }
 
             // 更新分页状态
+            pagination.value.total = total
             pagination.value.hasMore = data.length === pagination.value.limit
             pagination.value.skip += data.length
         } catch (err: any) {

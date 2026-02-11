@@ -102,6 +102,7 @@ export interface Message {
 export interface ConversationDetail {
     id: string
     user_id: string
+    user_name?: string
     title: string
     description?: string
     is_archived: boolean

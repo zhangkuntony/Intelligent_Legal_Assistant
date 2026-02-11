@@ -8,14 +8,15 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from typing import List, Optional
+from typing import Optional
 
 from ..core.database import get_db
 from ..core.security import get_current_user
-from ..models.chat import ChatRequest, ChatResponse, ConversationCreate, ConversationDetail
+from ..models.chat import ChatRequest, ChatResponse, ConversationCreate, ConversationDetail, ConversationsListResponse
 from ..models.conversation import Conversation
 from ..models.user import User
 from ..services.chat.chat_service import chat_service
+from ..utils.permission_helper import has_permission
 
 import json
 import logging
@@ -24,6 +25,81 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# ==================== 辅助函数 ====================
+def _validate_pagination_params(skip: int, limit: int) -> tuple[int, int]:
+    """
+        验证和规范化分页参数
+
+        Args:
+            skip: 跳过的数量
+            limit: 返回的最大数量
+
+        Returns:
+            (skip, limit) 验证后的参数
+        """
+    if skip < 0:
+        skip = 0
+    if limit < 1:
+        limit = 20
+    if limit > 100:
+        limit = 100
+    return skip, limit
+
+def _build_conversation_count_query(
+        user_id: Optional[str],
+        db: AsyncSession
+):
+    """
+        构建对话总数查询
+
+        Args:
+            user_id: 用户ID（None 表示查询所有用户）
+            db: 数据库会话
+
+        Returns:
+            查询结果
+        """
+    from sqlalchemy import func
+    if user_id is None:
+        # 查询所有用户的对话总数
+        return db.execute(
+            select(func.count(Conversation.id))
+            .where(Conversation.is_archived == False)
+        )
+    else:
+        # 查询指定用户的对话总数
+        return db.execute(
+            select(func.count(Conversation.id))
+            .where(Conversation.user_id == user_id)
+            .where(Conversation.is_archived == False)
+        )
+
+async def _determine_conversation_scope(
+        current_user: User,
+        db: AsyncSession,
+        for_history_page: bool = False
+) -> tuple[bool, Optional[str]]:
+    """
+        确定查询对话的范围
+
+        Args:
+            current_user: 当前登录用户
+            db: 数据库会话
+            for_history_page: 是否从历史记录页面调用
+
+        Returns:
+            (can_view_all, user_id) 是否可以查看所有，以及用户ID
+        """
+    # 检查是否有 chat:view 权限
+    can_view_all = for_history_page and await has_permission(current_user, "chat:view", db)
+
+    # 如果可以查看所有，返回 None（表示所有用户），否则返回当前用户ID
+    user_id = None if can_view_all else str(current_user.id)
+
+    return can_view_all, user_id
+
+
+# ==================== 路由定义 ====================
 @router.post("/send", response_model=ChatResponse)
 async def send_message(
         request: ChatRequest,
@@ -145,7 +221,7 @@ async def send_message_stream(
         }
     )
 
-@router.get("/conversations", response_model=List[ConversationDetail])
+@router.get("/conversations", response_model=ConversationsListResponse)
 async def get_conversations(
         skip: int = 0,
         limit: int = 20,
@@ -153,7 +229,9 @@ async def get_conversations(
         db: AsyncSession = Depends(get_db)
 ):
     """
-    获取用户的对话列表
+    获取所有用户的对话列表（历史记录页面专用）
+
+    需要 chat:view 权限才能查看所有用户的对话，否则只返回当前用户自己的对话
 
     Args:
         skip: 跳过的数量（分页用）
@@ -162,30 +240,38 @@ async def get_conversations(
         db: 数据库会话
 
     Returns:
-        List[ConversationDetail]: 对话列表，按更新时间倒序排列
+        ConversationsListResponse: 对话列表和总数，按更新时间倒序排列
     """
     try:
-        # 验证参数
-        if skip < 0:
-            skip = 0
-        if limit < 1:
-            limit = 20
-        if limit > 100:
-            limit = 100     # 最大限制100条
+        # 验证分页参数
+        skip, limit = _validate_pagination_params(skip, limit)
+
+        # 确定查询范围（这是历史记录页面，传入 for_history_page=True）
+        can_view_all, user_id = await _determine_conversation_scope(
+            current_user, db, for_history_page=True
+        )
 
         # 使用ChatService获取对话列表
         conversations = await chat_service.get_user_conversations(
-            user_id=str(current_user.id),
+            user_id=user_id,
             limit=limit,
             offset=skip
         )
 
+        # 获取总数
+        total_result = await _build_conversation_count_query(user_id, db)
+        total_count = total_result.scalar() or 0
+
         logger.info(
             f"获取对话列表成功：user_id={current_user.id}, "
-            f"count={len(conversations)}"
+            f"can_view_all={can_view_all}, "
+            f"count={len(conversations)}, total={total_count}"
         )
 
-        return conversations
+        return {
+            "conversations": conversations,
+            "total": total_count
+        }
 
     except Exception as e:
         logger.error(f"获取对话列表失败：{e}", exc_info=True)
@@ -193,6 +279,64 @@ async def get_conversations(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取对话列表失败：{str(e)}"
         )
+
+
+@router.get("/my-conversations", response_model=ConversationsListResponse)
+async def get_my_conversations(
+        skip: int = 0,
+        limit: int = 20,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """
+    获取当前用户的对话列表（对话页面专用）
+
+    只返回当前登录用户自己的对话，不受 chat:view 权限影响
+
+    Args:
+        skip: 跳过的数量（分页用）
+        limit: 返回的最大数量
+        current_user: 当前登录用户
+        db: 数据库会话
+
+    Returns:
+        ConversationsListResponse: 对话列表和总数，按更新时间倒序排列
+    """
+    try:
+        # 验证分页参数
+        skip, limit = _validate_pagination_params(skip, limit)
+
+        # 只查询当前用户的对话（不需要权限检查）
+        user_id = str(current_user.id)
+
+        # 使用ChatService获取对话列表
+        conversations = await chat_service.get_user_conversations(
+            user_id=user_id,
+            limit=limit,
+            offset=skip
+        )
+
+        # 获取当前用户的对话总数
+        total_result = await _build_conversation_count_query(user_id, db)
+        total_count = total_result.scalar() or 0
+
+        logger.info(
+            f"对话页面-获取对话列表成功：user_id={current_user.id}, "
+            f"count={len(conversations)}, total={total_count}"
+        )
+
+        return {
+            "conversations": conversations,
+            "total": total_count
+        }
+
+    except Exception as e:
+        logger.error(f"获取对话列表失败：{e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取对话列表失败：{str(e)}"
+        )
+
 
 @router.post("/conversations", response_model=ConversationDetail)
 async def create_conversation(
@@ -269,6 +413,8 @@ async def get_conversation(
     """
     获取对话详情及消息历史
 
+    需要有 chat:view 权限或者是对话的创建者才能访问
+
     Args:
         conversation_id: 对话ID
         current_user: 当前登录用户
@@ -287,8 +433,9 @@ async def get_conversation(
                 detail="对话不存在"
             )
 
-        # 检查权限
-        if conversation["user_id"] != str(current_user.id):
+        # 检查权限：有 chat:view 权限或者是对话的创建者才能访问
+        can_view_all = await has_permission(current_user, "chat:view", db)
+        if conversation["user_id"] != str(current_user.id) and not can_view_all:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="没有权限访问该对话"
@@ -296,7 +443,7 @@ async def get_conversation(
 
         logger.info(
             f"获取对话详情成功：conversation_id={conversation_id}, "
-            f"message_count={conversation['message_count']}"
+            f"user_id={conversation['user_id']}, message_count={conversation['message_count']}"
         )
 
         return conversation
@@ -529,7 +676,6 @@ async def update_conversation(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"更新对话失败：{str(e)}"
         )
-
 
 
 

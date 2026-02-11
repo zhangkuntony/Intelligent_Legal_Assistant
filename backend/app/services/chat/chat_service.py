@@ -639,16 +639,25 @@ class ChatService:
             conversation_id: 对话ID
 
         Returns:
-            对话详情（包含消息列表）
+            对话详情（包含消息列表和用户信息）
         """
         async with AsyncSessionLocal() as db:
-            # 获取对话
-            conversation = await db.get(Conversation, conversation_id)
+            from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
+            # 获取对话（预加载用户）
+            stmt = (
+                select(Conversation)
+                .options(selectinload(Conversation.user))  # 预加载用户
+            )
+            conversation = await db.execute(
+                stmt.where(Conversation.id == conversation_id)
+            )
+            conversation = conversation.scalar_one_or_none()
+
             if not conversation:
                 return None
 
             # 获取消息列表
-            from sqlalchemy import select
             stmt = (
                 select(Message)
                 .where(Message.conversation_id == conversation.id)
@@ -661,6 +670,7 @@ class ChatService:
             return {
                 "id": str(conversation.id),
                 "user_id": str(conversation.user_id),
+                "user_name": conversation.user.display_name,
                 "title": conversation.title,
                 "description": conversation.description,
                 "is_archived": conversation.is_archived,
@@ -683,12 +693,14 @@ class ChatService:
 
     async def get_user_conversations(
             self,
-            user_id: str,
+            user_id: str = None,
             limit: int = 20,
             offset: int = 0
     ) -> List[Dict[str, Any]]:
         """
         获取用户的对话列表
+
+        如果 user_id 为 None，则返回所有用户的对话；否则返回指定用户的对话
 
         Args:
             user_id: 用户ID
@@ -706,12 +718,17 @@ class ChatService:
             stmt = (
                 select(Conversation)
                 .options(selectinload(Conversation.messages))
-                .where(Conversation.user_id == user_id)
+                .options(selectinload(Conversation.user))
                 .where(Conversation.is_archived == False)
-                .order_by(desc(Conversation.updated_at))
-                .limit(limit)
-                .offset(offset)
             )
+
+            # 如果指定了user_id，添加用户过滤条件
+            if user_id is not None:
+                stmt = stmt.where(Conversation.user_id == user_id)
+
+            # 添加排序和分页
+            stmt = stmt.order_by(desc(Conversation.updated_at)).limit(limit).offset(offset)
+
             result = await db.execute(stmt)
             conversations = result.scalars().all()
 
@@ -720,6 +737,7 @@ class ChatService:
                 {
                     "id": str(conv.id),
                     "user_id": str(conv.user_id),
+                    "user_name": conv.user.display_name,
                     "title": conv.title,
                     "description": conv.description,
                     "is_archived": conv.is_archived,

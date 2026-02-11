@@ -640,11 +640,8 @@ onMounted(async () => {
     if (conversationId) {
       // 如果URL有对话ID，切换到该对话
       await handleSwitchConversation(conversationId)
-    } else if (conversations.value.length > 0 && currentConversationId.value) {
-      // 如果有对话但没有指定ID，使用第一个对话
-      await handleSwitchConversation(currentConversationId.value)
     } else {
-      // 如果没有任何对话，清空状态准备新对话（不创建后端数据）
+      // 默认显示新对话（清空状态，不加载任何历史对话）
       clearAndPrepareNewChat()
     }
   } catch (error: any) {

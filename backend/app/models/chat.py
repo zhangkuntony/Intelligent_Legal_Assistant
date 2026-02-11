@@ -155,6 +155,7 @@ class ConversationDetail(BaseModel):
     """对话详情模型"""
     id: str
     user_id: str
+    user_name: Optional[str] = Field(None, description="用户显示名称")
     title: str
     description: Optional[str]
     is_archived: bool
@@ -162,3 +163,14 @@ class ConversationDetail(BaseModel):
     last_message_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
+
+class ConversationsListResponse(BaseModel):
+    """对话列表响应模型
+
+    属性:
+        conversations: 对话列表
+        total: 总记录数
+    """
+    conversations: List[ConversationDetail] = Field(..., description="对话列表")
+    total: int = Field(..., ge=0, description="总记录数")
+

@@ -341,7 +341,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useChatStore } from '@/stores/chat';
 import { storeToRefs } from 'pinia';
-import { parseMarkdown } from '@/utils/markdown'
+import { parseMarkdown } from '@/utils/markdown';
 
 // Store
 const chatStore = useChatStore()
@@ -651,6 +651,11 @@ onMounted(async () => {
     ElMessage.error(`初始化失败：${error.message}`)
   }
 })
+
+// 监听消息变化，自动滚动到底部
+watch(messages, () => {
+  scrollToBottom()
+}, { deep: true })
 
 // 监听路由变化
 watch(() => route.params.id, async (newId) => {

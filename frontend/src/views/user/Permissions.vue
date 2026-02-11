@@ -116,7 +116,7 @@
             {{ formatDate(scope.row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right" header-align="center" align="center">
+        <el-table-column label="操作" width="200" fixed="right" header-align="center" align="center">
           <template #default="scope">
             <el-button 
               type="primary" 

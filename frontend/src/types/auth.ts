@@ -1,4 +1,7 @@
 // 用户相关类型定义
+import { Permission } from './permissions'
+import { UserRole } from './user'
+
 export interface User {
   id: string
   username: string
@@ -10,6 +13,8 @@ export interface User {
   last_login?: string
   created_at: string
   updated_at: string
+  roles: UserRole[]
+  permissions: Permission[]
 }
 
 export interface LoginData {

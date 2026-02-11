@@ -111,9 +111,28 @@ async def register_user(
 
 
 @router.get("/me")
-async def get_current_user_info(current_user: User = Depends(get_current_user)):
+async def get_current_user_info(
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
     """获取当前登录用户信息"""
+    from sqlalchemy.future import select
+    from ..models.role import Role, UserRole
+    from ..utils.permission_helper import get_user_permissions
+
     logging.info(f"Me: {current_user.username}")
+
+    # 获取用户的角色
+    roles_result = await db.execute(
+        select(Role)
+        .join(UserRole, Role.id == UserRole.role_id)
+        .where(UserRole.user_id == current_user.id)
+    )
+    roles = roles_result.scalars().all()
+
+    # 获取用户的权限
+    permissions = await get_user_permissions(current_user, db)
+
     return {
         "id": str(current_user.id),
         "username": current_user.username,
@@ -121,6 +140,30 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
         "full_name": current_user.full_name,
         "avatar_url": current_user.avatar_url,
         "is_active": current_user.is_active,
+        "is_superuser": current_user.is_superuser,
+        "roles": [
+            {
+                "id": str(role.id),
+                "name": role.name,
+                "code": role.code,
+                "is_system": role.is_system
+            }
+            for role in roles
+        ],
+        "permissions": permissions,
         "last_login": current_user.last_login,
         "created_at": current_user.created_at
+    }
+
+@router.get("/me/permissions")
+async def get_current_user_permissions(
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """获取当前登录用户的权限列表"""
+    from ..utils.permission_helper import get_user_permissions
+
+    permissions = await get_user_permissions(current_user, db)
+    return {
+        "permissions": permissions
     }

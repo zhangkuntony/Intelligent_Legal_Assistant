@@ -1,9 +1,8 @@
 import { request } from './api'
-import { API_CONFIG } from '../config/api'
+import { API_CONFIG } from '@/config/api'
 import type {
     ChatRequest,
     ChatResponse,
-    Conversation,
     ConversationDetail,
     ConversationWithMessages,
     CreateConversationData,
@@ -12,7 +11,7 @@ import type {
     QuestionAnalysis,
     RetrievedDoc,
     StreamMessage
-} from '../types/chat'
+} from '@/types/chat'
 
 /**
  * 聊天API服务
@@ -121,7 +120,7 @@ export const chatService = {
                                     conversation_id: data.conversation_id || '',
                                     content: '',
                                     intent: (data).intent || {} as any,
-                                    analysis: (data as any).analysis || {} as any,
+                                    analysis: (data).analysis || {} as any,
                                     retrieved_docs: [],
                                     tokens_used: data.tokens_used || 0,
                                     created_at: new Date().toISOString()
@@ -144,7 +143,7 @@ export const chatService = {
     },
 
     /**
-     * 获取用户的对话列表
+     * 获取用户的对话列表（默认获取当前用户的对话）
      * 
      * @param skip - 跳过的数量（分页用），默认0
      * @param limit - 返回的最大数量，默认20，最大100
@@ -152,18 +151,95 @@ export const chatService = {
      * 
      * @example
      * ```typescript
-     * const conversations = await chatService.getConversations(0, 20)
+     * const { conversations, total } = await chatService.getConversations(0, 20)
      * ```
      */
     async getConversations(
         skip: number = 0,
         limit: number = 20
-    ): Promise<ConversationDetail[]> {
+    ): Promise<{
+        conversations: ConversationDetail[]
+        total: number
+    }> {
+        // 默认行为：只获取当前用户的对话
+        return this.getMyConversations(skip, limit)
+    },
+
+        /**
+     * 获取用户的对话列表（所有用户，用于历史记录页面）
+     * 
+     * 如果当前用户有 chat:view 权限，则返回所有用户的对话；
+     * 否则只返回当前用户自己的对话
+     * 
+     * @param skip - 跳过的数量（分页用），默认0
+     * @param limit - 返回的最大数量，默认20，最大100
+     * @returns 对话列表，按更新时间倒序排列
+     * 
+     * @example
+     * ```typescript
+     * const { conversations, total } = await chatService.getAllConversations(0, 20)
+     * ```
+     */
+    async getAllConversations(
+        skip: number = 0,
+        limit: number = 20
+    ): Promise<{
+        conversations: ConversationDetail[]
+        total: number
+    }> {
         try {
-            return await request.get<ConversationDetail[]>(
+            const response = await request.get<{
+                conversations: ConversationDetail[]
+                total: number
+            }>(
                 API_CONFIG.ENDPOINTS.CHAT.CONVERSATIONS,
                 { params: { skip, limit } }
             )
+
+            return {
+                conversations: response.conversations || [],
+                total: response.total || 0
+            }
+        } catch (error) {
+            console.error('获取对话列表失败：', error)
+            throw new Error('获取对话列表失败，请稍后重试')
+        }
+    },
+
+    /**
+     * 获取当前用户的对话列表（仅当前用户，用于对话页面）
+     * 
+     * 只返回当前登录用户自己的对话，不受 chat:view 权限影响
+     * 
+     * @param skip - 跳过的数量（分页用），默认0
+     * @param limit - 返回的最大数量，默认20，最大100
+     * @returns 对话列表，按更新时间倒序排列
+     * 
+     * @example
+     * ```typescript
+     * const { conversations, total } = await chatService.getMyConversations(0, 20)
+     * ```
+     */
+    async getMyConversations(
+        skip: number = 0,
+        limit: number = 20
+    ): Promise<{
+        conversations: ConversationDetail[]
+        total: number
+    }> {
+        try {
+            const response = await request.get<{
+                conversations: ConversationDetail[]
+                total: number
+            }>(
+                `${API_CONFIG.BASE_URL}/api/chat/my-conversations`,
+                { params: { skip, limit } }
+            )
+
+            return {
+                conversations: response.conversations || [],
+                total: response.total || 0
+            }
         } catch (error) {
             console.error('获取对话列表失败：', error)
             throw new Error('获取对话列表失败，请稍后重试')
@@ -332,7 +408,7 @@ export const chatService = {
         limit: number = 20
     ): Promise<ConversationDetail[]> {
         try {
-            const conversations = await this.getConversations(skip, limit)
+            const { conversations } = await this.getConversations(skip, limit)
 
             if (!keyword.trim()) {
                 return conversations
@@ -342,7 +418,7 @@ export const chatService = {
             const lowerKeyword = keyword.toLowerCase()
             return conversations.filter(conv => 
                 conv.title.toLowerCase().includes(lowerKeyword) ||
-                (conv.description && conv.description.toLowerCase().includes(lowerKeyword))
+                conv.description?.toLowerCase().includes(lowerKeyword)
             )
         } catch (error) {
             console.error('搜索对话失败：', error)
@@ -450,7 +526,82 @@ export const chatService = {
             hour: '2-digit',
             minute: '2-digit',
         })
+    },
+
+
+    /**
+     * 获取会话分析统计数据
+     * 
+     * @returns 会话统计数据
+     * 
+     * @example
+     * ```typescript
+     * const analytics = await chatService.getConversationAnalytics()
+     * ```
+     */
+    async getConversationAnalytics(): Promise<{
+        stats: {
+            total_conversations: number
+            active_users: number
+            avg_duration: number
+        }
+        trend: Array<{ date: string; count: number }>
+        hot_topics: Array<{ topic: string; count: number }>
+        recent_conversations: Array<{
+            id: string
+            user_id: string
+            user_name: string
+            title: string
+            duration: number
+            messages: number
+            time: string
+        }>
+    }> {
+        try {
+            const response = await request.get(
+                `${API_CONFIG.BASE_URL}/api/chat/analytics`
+            )
+            return response
+        } catch (error) {
+            console.error('获取会话分析数据失败：', error)
+            throw new Error('获取会话分析数据失败，请稍后重试')
+        }
+    },
+
+
+    /**
+     * 获取Dashboard统计数据
+     * 
+     * @returns Dashboard统计数据
+     * 
+     * @example
+     * ```typescript
+     * const { stats, recent_conversations } = await chatService.getDashboardStats()
+     * ```
+     */
+    async getDashboardStats(): Promise<{
+        stats: {
+            conversations: number
+            documents: number
+            totalTime: number
+        }
+        recent_conversations: Array<{
+            id: string
+            title: string
+            time: string
+        }>
+    }> {
+        try {
+            const response = await request.get(
+                `${API_CONFIG.BASE_URL}/api/chat/dashboard-stats`
+            )
+            return response
+        } catch (error) {
+            console.error('获取Dashboard统计数据失败：', error)
+            throw new Error('获取Dashboard统计数据失败，请稍后重试')
+        }
     }
 }
+
 
 export default chatService

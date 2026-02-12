@@ -5,17 +5,20 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from typing import List, Optional
+from typing import Optional
 
 from ..core.database import get_db
 from ..core.security import get_current_user
-from ..models.chat import ChatRequest, ChatResponse, ConversationCreate, ConversationDetail
+from ..models import Message, Document
+from ..models.chat import ChatRequest, ChatResponse, ConversationCreate, ConversationDetail, ConversationsListResponse
 from ..models.conversation import Conversation
 from ..models.user import User
 from ..services.chat.chat_service import chat_service
+from ..utils.permission_helper import has_permission
 
 import json
 import logging
@@ -24,6 +27,81 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# ==================== 辅助函数 ====================
+def _validate_pagination_params(skip: int, limit: int) -> tuple[int, int]:
+    """
+        验证和规范化分页参数
+
+        Args:
+            skip: 跳过的数量
+            limit: 返回的最大数量
+
+        Returns:
+            (skip, limit) 验证后的参数
+        """
+    if skip < 0:
+        skip = 0
+    if limit < 1:
+        limit = 20
+    if limit > 100:
+        limit = 100
+    return skip, limit
+
+def _build_conversation_count_query(
+        user_id: Optional[str],
+        db: AsyncSession
+):
+    """
+        构建对话总数查询
+
+        Args:
+            user_id: 用户ID（None 表示查询所有用户）
+            db: 数据库会话
+
+        Returns:
+            查询结果
+        """
+    from sqlalchemy import func
+    if user_id is None:
+        # 查询所有用户的对话总数
+        return db.execute(
+            select(func.count(Conversation.id))
+            .where(Conversation.is_archived == False)
+        )
+    else:
+        # 查询指定用户的对话总数
+        return db.execute(
+            select(func.count(Conversation.id))
+            .where(Conversation.user_id == user_id)
+            .where(Conversation.is_archived == False)
+        )
+
+async def _determine_conversation_scope(
+        current_user: User,
+        db: AsyncSession,
+        for_history_page: bool = False
+) -> tuple[bool, Optional[str]]:
+    """
+        确定查询对话的范围
+
+        Args:
+            current_user: 当前登录用户
+            db: 数据库会话
+            for_history_page: 是否从历史记录页面调用
+
+        Returns:
+            (can_view_all, user_id) 是否可以查看所有，以及用户ID
+        """
+    # 检查是否有 chat:view 权限
+    can_view_all = for_history_page and await has_permission(current_user, "chat:view", db)
+
+    # 如果可以查看所有，返回 None（表示所有用户），否则返回当前用户ID
+    user_id = None if can_view_all else str(current_user.id)
+
+    return can_view_all, user_id
+
+
+# ==================== 路由定义 ====================
 @router.post("/send", response_model=ChatResponse)
 async def send_message(
         request: ChatRequest,
@@ -145,7 +223,7 @@ async def send_message_stream(
         }
     )
 
-@router.get("/conversations", response_model=List[ConversationDetail])
+@router.get("/conversations", response_model=ConversationsListResponse)
 async def get_conversations(
         skip: int = 0,
         limit: int = 20,
@@ -153,7 +231,9 @@ async def get_conversations(
         db: AsyncSession = Depends(get_db)
 ):
     """
-    获取用户的对话列表
+    获取所有用户的对话列表（历史记录页面专用）
+
+    需要 chat:view 权限才能查看所有用户的对话，否则只返回当前用户自己的对话
 
     Args:
         skip: 跳过的数量（分页用）
@@ -162,30 +242,38 @@ async def get_conversations(
         db: 数据库会话
 
     Returns:
-        List[ConversationDetail]: 对话列表，按更新时间倒序排列
+        ConversationsListResponse: 对话列表和总数，按更新时间倒序排列
     """
     try:
-        # 验证参数
-        if skip < 0:
-            skip = 0
-        if limit < 1:
-            limit = 20
-        if limit > 100:
-            limit = 100     # 最大限制100条
+        # 验证分页参数
+        skip, limit = _validate_pagination_params(skip, limit)
+
+        # 确定查询范围（这是历史记录页面，传入 for_history_page=True）
+        can_view_all, user_id = await _determine_conversation_scope(
+            current_user, db, for_history_page=True
+        )
 
         # 使用ChatService获取对话列表
         conversations = await chat_service.get_user_conversations(
-            user_id=str(current_user.id),
+            user_id=user_id,
             limit=limit,
             offset=skip
         )
 
+        # 获取总数
+        total_result = await _build_conversation_count_query(user_id, db)
+        total_count = total_result.scalar() or 0
+
         logger.info(
             f"获取对话列表成功：user_id={current_user.id}, "
-            f"count={len(conversations)}"
+            f"can_view_all={can_view_all}, "
+            f"count={len(conversations)}, total={total_count}"
         )
 
-        return conversations
+        return {
+            "conversations": conversations,
+            "total": total_count
+        }
 
     except Exception as e:
         logger.error(f"获取对话列表失败：{e}", exc_info=True)
@@ -193,6 +281,64 @@ async def get_conversations(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取对话列表失败：{str(e)}"
         )
+
+
+@router.get("/my-conversations", response_model=ConversationsListResponse)
+async def get_my_conversations(
+        skip: int = 0,
+        limit: int = 20,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """
+    获取当前用户的对话列表（对话页面专用）
+
+    只返回当前登录用户自己的对话，不受 chat:view 权限影响
+
+    Args:
+        skip: 跳过的数量（分页用）
+        limit: 返回的最大数量
+        current_user: 当前登录用户
+        db: 数据库会话
+
+    Returns:
+        ConversationsListResponse: 对话列表和总数，按更新时间倒序排列
+    """
+    try:
+        # 验证分页参数
+        skip, limit = _validate_pagination_params(skip, limit)
+
+        # 只查询当前用户的对话（不需要权限检查）
+        user_id = str(current_user.id)
+
+        # 使用ChatService获取对话列表
+        conversations = await chat_service.get_user_conversations(
+            user_id=user_id,
+            limit=limit,
+            offset=skip
+        )
+
+        # 获取当前用户的对话总数
+        total_result = await _build_conversation_count_query(user_id, db)
+        total_count = total_result.scalar() or 0
+
+        logger.info(
+            f"对话页面-获取对话列表成功：user_id={current_user.id}, "
+            f"count={len(conversations)}, total={total_count}"
+        )
+
+        return {
+            "conversations": conversations,
+            "total": total_count
+        }
+
+    except Exception as e:
+        logger.error(f"获取对话列表失败：{e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取对话列表失败：{str(e)}"
+        )
+
 
 @router.post("/conversations", response_model=ConversationDetail)
 async def create_conversation(
@@ -269,6 +415,8 @@ async def get_conversation(
     """
     获取对话详情及消息历史
 
+    需要有 chat:view 权限或者是对话的创建者才能访问
+
     Args:
         conversation_id: 对话ID
         current_user: 当前登录用户
@@ -287,8 +435,9 @@ async def get_conversation(
                 detail="对话不存在"
             )
 
-        # 检查权限
-        if conversation["user_id"] != str(current_user.id):
+        # 检查权限：有 chat:view 权限或者是对话的创建者才能访问
+        can_view_all = await has_permission(current_user, "chat:view", db)
+        if conversation["user_id"] != str(current_user.id) and not can_view_all:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="没有权限访问该对话"
@@ -296,7 +445,7 @@ async def get_conversation(
 
         logger.info(
             f"获取对话详情成功：conversation_id={conversation_id}, "
-            f"message_count={conversation['message_count']}"
+            f"user_id={conversation['user_id']}, message_count={conversation['message_count']}"
         )
 
         return conversation
@@ -531,5 +680,312 @@ async def update_conversation(
         )
 
 
+@router.get("/analytics")
+async def get_conversation_analytics(
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """
+    获取会话分析统计数据
+
+    需要 chat:view 权限才能查看所有用户的统计数据
+
+    Args:
+        current_user: 当前登录用户
+        db: 数据库会话
+
+    Returns:
+        dict: 会话统计数据
+    """
+    try:
+        # 检查权限
+        can_view_all = await has_permission(current_user, "chat:view", db)
+
+        from sqlalchemy import func, select, and_, desc
+        from datetime import datetime, timedelta
+
+        # 确定查询范围
+        user_filter = None if can_view_all else Conversation.user_id == current_user.id
+
+        # 1. 总对话数（未归档的）
+        total_stmt = (
+            select(func.count(Conversation.id))
+            .where(Conversation.is_archived == False)
+        )
+        if user_filter:
+            total_stmt = total_stmt.where(user_filter)
+        total_result = await db.execute(total_stmt)
+        total_conversations = total_result.scalar() or 0
+
+        # 2. 活跃用户数（最近30天有对话的用户）
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+        active_users_stmt = (
+            select(func.count(func.distinct(Conversation.user_id)))
+            .where(Conversation.is_archived == False)
+            .where(Conversation.created_at >= thirty_days_ago)
+        )
+        if user_filter:
+            active_users_stmt = active_users_stmt.where(user_filter)
+        active_users_result = await db.execute(active_users_stmt)
+        active_users = active_users_result.scalar() or 0
+
+        # 3. 平均对话时长（分钟）
+        # 计算方法：每个对话的最后一条消息时间 - 第一条消息时间
+        conversations_with_messages_stmt = (
+            select(Conversation)
+            .options(selectinload(Conversation.messages))
+            .where(Conversation.is_archived == False)
+        )
+        if user_filter:
+            conversations_with_messages_stmt = conversations_with_messages_stmt.where(user_filter)
+        conversations_result = await db.execute(conversations_with_messages_stmt)
+        conversations_list = conversations_result.scalars().all()
+
+        total_duration = 0
+        valid_conversations = 0
+        for conv in conversations_list:
+            if len(conv.messages) >= 2:
+                first_msg_time = conv.messages[0].created_at
+                last_msg_time = conv.messages[-1].created_at
+                duration_minutes = (last_msg_time - first_msg_time).total_seconds() / 60
+                total_duration += duration_minutes
+                valid_conversations += 1
+
+        avg_duration = round(total_duration / valid_conversations) if valid_conversations > 0 else 0
+
+        # 4. 对话趋势（按日期分组统计，最近7天）
+        seven_days_ago = datetime.now() - timedelta(days=7)
+        trend_stmt = (
+            select(
+                func.date(Conversation.created_at).label("date"),
+                func.count(Conversation.id).label("count")
+            )
+            .where(Conversation.is_archived == False)
+            .where(Conversation.created_at >= seven_days_ago)
+            .group_by(func.date(Conversation.created_at))
+            .order_by(func.date(Conversation.created_at))
+        )
+        if user_filter:
+            trend_stmt = trend_stmt.where(user_filter)
+
+        trend_result = await db.execute(trend_stmt)
+        trend_data = [
+            {
+                "date": str(row.date),
+                "count": row.count
+            }
+            for row in trend_result.all()
+        ]
+
+        # 5. 热门话题（基于对话标题的关键词统计，取前10）
+        # 简单实现：按标题的词频统计
+        import re
+        from collections import Counter
+
+        titles_stmt = (
+            select(Conversation.title)
+            .where(Conversation.is_archived == False)
+            .where(Conversation.title.isnot(None))
+            .where(Conversation.title != '')
+        )
+        if user_filter:
+            titles_stmt = titles_stmt.where(user_filter)
+
+        titles_result = await db.execute(titles_stmt)
+        titles = [row[0] for row in titles_result.all()]
+
+        # 使用TextAnalyzer提取关键词
+        from ..utils.text_analyzer import text_analyzer
+
+        hot_topics = text_analyzer.extract_keywords_from_texts(
+            texts=titles,
+            top_k=10,
+            min_word_length=2,
+            max_word_length=4,
+            use_stop_words=True,
+            domain='legal'  # 使用法律领域停用词
+        )
+
+        # 6. 最近对话记录（前10条）
+        recent_conversations_stmt = (
+            select(Conversation)
+            .options(selectinload(Conversation.messages), selectinload(Conversation.user))
+            .where(Conversation.is_archived == False)
+            .order_by(desc(Conversation.updated_at))
+            .limit(10)
+        )
+        if user_filter:
+            recent_conversations_stmt = recent_conversations_stmt.where(user_filter)
+
+        recent_result = await db.execute(recent_conversations_stmt)
+        recent_conversations_list = recent_result.scalars().all()
+
+        recent_conversations_data = []
+        for conv in recent_conversations_list:
+            # 计算对话时长
+            duration_minutes = 0
+            if len(conv.messages) >= 2:
+                first_msg_time = conv.messages[0].created_at
+                last_msg_time = conv.messages[-1].created_at
+                duration_minutes = round((last_msg_time - first_msg_time).total_seconds() / 60)
+
+            recent_conversations_data.append({
+                "id": str(conv.id),
+                "user_id": str(conv.user_id),
+                "user_name": conv.user.display_name,
+                "title": conv.title,
+                "duration": duration_minutes,
+                "messages": len(conv.messages),
+                "time": conv.updated_at.isoformat()
+            })
+
+        logger.info(
+            f"获取会话分析数据成功：total={total_conversations}, "
+            f"active_users={active_users}, avg_duration={avg_duration}"
+        )
+
+        return {
+            "stats": {
+                "total_conversations": total_conversations,
+                "active_users": active_users,
+                "avg_duration": avg_duration
+            },
+            "trend": trend_data,
+            "hot_topics": hot_topics,
+            "recent_conversations": recent_conversations_data
+        }
+
+    except Exception as e:
+        logger.error(f"获取会话分析数据失败：{e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取会话分析数据失败：{str(e)}"
+        )
+
+
+@router.get("/dashboard-stats")
+async def get_dashboard_stats(
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """
+    获取Dashboard统计数据
+
+    包括：
+    - 对话记录总数
+    - 文档数量
+    - 使用时长（小时）
+
+    Args:
+        current_user: 当前登录用户
+        db: 数据库会话
+
+    Returns:
+        dict: Dashboard统计数据
+    """
+    try:
+        from datetime import datetime, timedelta
+        from sqlalchemy import func
+
+        # 检查权限：有 chat:view 权限的用户可以看到所有数据，否则只看自己的
+        can_view_all = await has_permission(current_user, "chat:view", db)
+        user_filter = None if can_view_all else Conversation.user_id == current_user.id
+
+        # 1. 获取对话总数（未归档的）
+        total_conv_stmt = (
+            select(func.count(Conversation.id))
+            .where(Conversation.is_archived == False)
+        )
+        if user_filter:
+            total_conv_stmt = total_conv_stmt.where(user_filter)
+
+        total_conv_result = await db.execute(total_conv_stmt)
+        total_conversations = total_conv_result.scalar() or 0
+
+        # 2. 获取文档总数
+        if can_view_all:
+            # 管理员可以看到所有用户的文档
+            total_docs_stmt = select(func.count(Document.id))
+        else:
+            # 普通用户只看自己的文档
+            total_docs_stmt = (
+                select(func.count(Document.id))
+                .where(Document.user_id == current_user.id)
+            )
+
+        total_docs_result = await db.execute(total_docs_stmt)
+        total_documents = total_docs_result.scalar() or 0
+
+        # 3. 计算使用时长（小时）
+        # 计算方法：所有有消息的对话的（最后一条消息时间 - 第一条消息时间）之和
+        conversations_with_messages_stmt = (
+            select(Conversation)
+            .options(selectinload(Conversation.messages))
+            .where(Conversation.is_archived == False)
+        )
+        if user_filter:
+            conversations_with_messages_stmt = conversations_with_messages_stmt.where(user_filter)
+
+        conversations_result = await db.execute(conversations_with_messages_stmt)
+        conversations_list = conversations_result.scalars().all()
+
+        total_duration_seconds = 0
+        for conv in conversations_list:
+            if len(conv.messages) >= 2:
+                first_msg_time = conv.messages[0].created_at
+                last_msg_time = conv.messages[-1].created_at
+                duration_seconds = (last_msg_time - first_msg_time).total_seconds()
+                total_duration_seconds += duration_seconds
+
+        # 转换为小时，保留一位小数
+        total_hours = round(total_duration_seconds / 3600, 1)
+
+        # 4. 获取最近对话记录（最近5条）
+        recent_conv_stmt = (
+            select(Conversation)
+            .options(selectinload(Conversation.messages), selectinload(Conversation.user))
+            .where(Conversation.is_archived == False)
+            .order_by(desc(Conversation.updated_at))
+            .limit(5)
+        )
+        if user_filter:
+            recent_conv_stmt = recent_conv_stmt.where(user_filter)
+
+        recent_result = await db.execute(recent_conv_stmt)
+        recent_conversations_list = recent_result.scalars().all()
+
+        recent_conversations = []
+        for conv in recent_conversations_list:
+            # 格式化时间
+            updated_at = conv.updated_at.strftime('%Y-%m-%d %H:%M')
+
+            recent_conversations.append({
+                "id": str(conv.id),
+                "title": conv.title,
+                "time": updated_at
+            })
+
+        logger.info(
+            f"获取Dashboard统计数据成功：user_id={current_user.id}, "
+            f"conversations={total_conversations}, "
+            f"documents={total_documents}, "
+            f"hours={total_hours}"
+        )
+
+        return {
+            "stats": {
+                "conversations": total_conversations,
+                "documents": total_documents,
+                "totalTime": total_hours
+            },
+            "recent_conversations": recent_conversations
+        }
+
+    except Exception as e:
+        logger.error(f"获取Dashboard统计数据失败：{e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取Dashboard统计数据失败：{str(e)}"
+        )
 
 

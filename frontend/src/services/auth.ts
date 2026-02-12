@@ -1,5 +1,6 @@
 import { request } from './api'
-import type { User, LoginData, RegisterData, AuthResponse } from '../types/auth'
+import type { User, LoginData, RegisterData, AuthResponse } from '@/types/auth'
+import { Permission } from '@/types/permissions'
 
 export const authService = {
   // 用户登录
@@ -25,5 +26,12 @@ export const authService = {
   // 刷新token（如果需要）
   async refreshToken(): Promise<AuthResponse> {
     return request.post<AuthResponse>('/api/auth/refresh')
-  },
+  },  
+
+  /**
+   * 获取当前用户的权限列表
+   */
+  async getCurrentUserPermissions(): Promise<{ permissions: Permission[] }> {
+      return request.get('/api/auth/me/permissions')
+  }
 }

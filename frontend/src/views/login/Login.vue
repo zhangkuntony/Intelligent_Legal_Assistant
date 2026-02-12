@@ -37,7 +37,7 @@
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { useAuthStore } from '../stores/auth'
+import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -73,7 +73,7 @@ const handleLogin = async () => {
     ElMessage.success('登录成功')
     router.push('/dashboard')
   } catch (error) {
-    console.log('登录失败', error)
+    console.error('登录失败', error)
     ElMessage.error('登录失败，请检查用户名和密码')
   } finally {
     loading.value = false

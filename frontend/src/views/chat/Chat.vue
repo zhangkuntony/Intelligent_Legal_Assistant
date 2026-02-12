@@ -319,7 +319,7 @@
 
 <script setup lang="ts"> 
 import { ref, watch, onMounted, nextTick } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus,
@@ -339,9 +339,9 @@ import {
   Position,
   Loading
 } from '@element-plus/icons-vue'
-import { useChatStore } from '../stores/chat';
+import { useChatStore } from '@/stores/chat';
 import { storeToRefs } from 'pinia';
-import { parseMarkdown } from '../utils/markdown'
+import { parseMarkdown } from '@/utils/markdown';
 
 // Store
 const chatStore = useChatStore()
@@ -349,8 +349,6 @@ const {
   conversations,
   currentConversation,
   currentConversationId,
-  error,
-  lastChatResponse,
   loadingConversations,
   loadingMessages,
   messages,
@@ -359,13 +357,11 @@ const {
 } = storeToRefs(chatStore)
 
 const {
-  clearAllCache,
   createConversation,
   deleteConversation,
   formatMessageTime,
   loadConversations,
   regenerateResponse,
-  sendMessage,
   sendMessageStream,
   switchConversation,
   updateConversation
@@ -373,7 +369,6 @@ const {
 
 // Route & Router
 const route = useRoute()
-const router = useRouter()
 
 // Local state
 const inputMessage = ref('')
@@ -474,7 +469,6 @@ const handleSendMessage = async () => {
         newConversation.id,
         (chunk) => {
           // 内容块回调
-          console.log('收到内容块：', chunk)
           scrollToBottom()                    // 每次收到内容块都滚动到底部
         }
       )
@@ -646,17 +640,19 @@ onMounted(async () => {
     if (conversationId) {
       // 如果URL有对话ID，切换到该对话
       await handleSwitchConversation(conversationId)
-    } else if (conversations.value.length > 0 && currentConversationId.value) {
-      // 如果有对话但没有指定ID，使用第一个对话
-      await handleSwitchConversation(currentConversationId.value)
     } else {
-      // 如果没有任何对话，清空状态准备新对话（不创建后端数据）
+      // 默认显示新对话（清空状态，不加载任何历史对话）
       clearAndPrepareNewChat()
     }
   } catch (error: any) {
     ElMessage.error(`初始化失败：${error.message}`)
   }
 })
+
+// 监听消息变化，自动滚动到底部
+watch(messages, () => {
+  scrollToBottom()
+}, { deep: true })
 
 // 监听路由变化
 watch(() => route.params.id, async (newId) => {

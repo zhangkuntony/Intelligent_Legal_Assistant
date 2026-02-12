@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import type { AxiosResponse, AxiosRequestConfig } from 'axios'
-import { API_CONFIG } from '../config/api'
+import { API_CONFIG } from '@/config/api'
 
 // 创建axios实例
 const api = axios.create({

@@ -740,7 +740,6 @@ async def search_documents(
         )
 
 
-
 @router.get("/{document_id}/embeddings")
 async def get_document_embeddings(
         document_id: str,

@@ -35,42 +35,32 @@
           text-color="#bfcbd9"
           active-text-color="#1064b8"
         >
-          <el-menu-item index="/dashboard">
-            <el-icon><Odometer /></el-icon>
-            <span>主页</span>
-          </el-menu-item>
-          
-          <el-sub-menu index="user-management">
-            <template #title>
-              <el-icon><User /></el-icon>
-              <span>用户管理</span>
-            </template>
-            <el-menu-item index="/users">用户列表</el-menu-item>
-            <el-menu-item index="/user-roles">角色管理</el-menu-item>
-            <el-menu-item index="/user-permissions">权限管理</el-menu-item>
-          </el-sub-menu>
-          
-          <el-sub-menu index="document-management">
-            <template #title>
-              <el-icon><Document /></el-icon>
-              <span>文档管理</span>
-            </template>
-            <el-menu-item index="/documents">文档列表</el-menu-item>
-            <el-menu-item index="/document-categories">分类管理</el-menu-item>
-          </el-sub-menu>
-          
-          <el-sub-menu index="conversation-management">
-            <template #title>
-              <el-icon><ChatDotRound /></el-icon>
-              <span>会话管理</span>
-            </template>
-            <el-menu-item index="/chat">
-              <el-icon><ChatLineRound /></el-icon>
-              <span>智能对话</span>
-            </el-menu-item>
-            <el-menu-item index="/history">历史记录</el-menu-item>
-            <el-menu-item index="/conversation-analytics">会话分析</el-menu-item>
-          </el-sub-menu>
+          <template v-for="menuItem in filteredMenuItems" :key="menuItem.id">
+            <!-- 有子菜单的项 -->
+            <el-sub-menu v-if="menuItem.children && menuItem.children.length > 0" :index="menuItem.id">
+              <template #title>
+                <el-icon v-if="menuItem.icon">
+                  <component :is="menuItem.icon" />
+                </el-icon>
+                <span>{{ menuItem.title }}</span>
+              </template>
+              <el-menu-item
+                v-for="child in menuItem.children"
+                :key="child.id"
+                :index="child.path || child.id"
+              >
+                <span>{{ child.title }}</span>
+              </el-menu-item>
+            </el-sub-menu>
+
+            <!-- 没有子菜单的项 -->
+             <el-menu-item v-else :index="menuItem.path || menuItem.id">
+              <el-icon v-if="menuItem.icon">
+                <component :is="menuItem.icon" />
+              </el-icon>
+              <span>{{ menuItem.title }}</span>
+             </el-menu-item>
+          </template>
         </el-menu>
       </el-aside>
 
@@ -97,7 +87,10 @@
 import { ref, computed, onMounted, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useAuthStore } from '../stores/auth'
+import { useAuthStore } from '@/stores/auth'
+import { menuConfig, PERMISSIONS } from '@/config/menu'
+import { filterMenuByPermission } from '@/utils/permission'
+import type { MenuItem } from '@/config/menu'
 
 const route = useRoute()
 const router = useRouter()
@@ -106,6 +99,14 @@ const authStore = useAuthStore()
 const userInfo = ref(authStore.user)
 
 const currentRoute = computed(() => route.path)
+
+// 计算过滤后的菜单
+const filteredMenuItems = computed<MenuItem[]>(() => {
+  const userPermissions = authStore.permissions.map(p => p.code)
+  const isSuperUser = authStore.user?.is_superuser || false
+
+  return filterMenuByPermission(menuConfig, userPermissions, isSuperUser)
+})
 
 // 拖拽相关数据
 const buttonPosition = reactive({

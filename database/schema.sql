@@ -249,5 +249,143 @@ ALTER TABLE documents OWNER TO legal_assistant;
 COMMENT ON COLUMN users.password_hash IS '使用bcrypt加密的密码哈希';
 COMMENT ON COLUMN document_embeddings.embedding IS 'OpenAI text-embedding-ada-002模型生成的1536维向量';
 
+-- ==================== 角色和权限管理 ====================
+
+-- 角色表
+CREATE TABLE roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(50) NOT NULL UNIQUE,
+    code VARCHAR(50) NOT NULL UNIQUE,
+    description TEXT,
+    is_system BOOLEAN DEFAULT FALSE,  -- 是否为系统内置角色（不可删除）
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 权限表
+CREATE TABLE permissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(50) NOT NULL UNIQUE,
+    code VARCHAR(100) NOT NULL UNIQUE,
+    module VARCHAR(50) NOT NULL,  -- 模块名称（如：user, document, chat等）
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 用户-角色关联表
+CREATE TABLE user_roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    assigned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    assigned_by UUID REFERENCES users(id),
+    UNIQUE(user_id, role_id)
+);
+
+-- 角色-权限关联表
+CREATE TABLE role_permissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    permission_id UUID NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    granted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(role_id, permission_id)
+);
+
+-- ==================== 索引 ====================
+
+CREATE INDEX idx_user_roles_user_id ON user_roles(user_id);
+CREATE INDEX idx_user_roles_role_id ON user_roles(role_id);
+CREATE INDEX idx_role_permissions_role_id ON role_permissions(role_id);
+CREATE INDEX idx_role_permissions_permission_id ON role_permissions(permission_id);
+CREATE INDEX idx_roles_code ON roles(code);
+CREATE INDEX idx_permissions_code ON permissions(code);
+
+-- ==================== 触发器 ====================
+
+CREATE TRIGGER update_roles_updated_at BEFORE UPDATE ON roles
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ==================== 初始数据 ====================
+
+-- 插入默认角色
+INSERT INTO roles (name, code, description, is_system) VALUES
+('超级管理员', 'admin', '系统最高权限管理员，拥有所有权限', TRUE),
+('普通用户', 'user', '普通系统用户，基本权限', FALSE),
+('访客', 'guest', '只读权限用户', FALSE);
+
+-- 插入基础权限
+INSERT INTO permissions (name, code, module, description) VALUES
+-- 用户管理权限
+('查看用户', 'user:view', 'user', '查看用户列表和详情'),
+('创建用户', 'user:create', 'user', '创建新用户'),
+('编辑用户', 'user:update', 'user', '编辑用户信息'),
+('删除用户', 'user:delete', 'user', '删除用户'),
+-- 文档管理权限
+('查看文档', 'document:view', 'document', '查看文档列表和详情'),
+('上传文档', 'document:upload', 'document', '上传新文档'),
+('编辑文档', 'document:update', 'document', '编辑文档信息'),
+('删除文档', 'document:delete', 'document', '删除文档'),
+('处理文档', 'document:process', 'document', '处理文档生成向量'),
+-- 对话管理权限
+('查看对话', 'chat:view', 'chat', '查看对话历史'),
+('发送消息', 'chat:send', 'chat', '发送聊天消息'),
+('删除对话', 'chat:delete', 'chat', '删除对话记录'),
+-- 角色管理权限
+('查看角色', 'role:view', 'role', '查看角色列表和详情'),
+('创建角色', 'role:create', 'role', '创建新角色'),
+('编辑角色', 'role:update', 'role', '编辑角色信息和权限'),
+('删除角色', 'role:delete', 'role', '删除角色'),
+('分配角色', 'role:assign', 'role', '为用户分配角色'),
+-- 系统管理权限
+('系统配置', 'system:config', 'system', '系统配置管理'),
+('数据统计', 'system:stats', 'system', '查看数据统计'),
+('日志查看', 'system:log', 'system', '查看系统日志');
+
+-- 为超级管理员分配所有权限
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT
+    (SELECT id FROM roles WHERE code = 'admin'),
+    id
+FROM permissions;
+
+-- 为普通用户分配基础权限
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT
+    (SELECT id FROM roles WHERE code = 'user'),
+    id
+FROM permissions
+WHERE code IN ('document:view', 'document:upload', 'chat:view', 'chat:send');
+
+-- 为访客分配只读权限
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT
+    (SELECT id FROM roles WHERE code = 'guest'),
+    id
+FROM permissions
+WHERE code IN ('document:view', 'chat:view');
+
+-- 为现有测试用户分配普通用户角色
+INSERT INTO user_roles (user_id, role_id)
+SELECT
+    u.id,
+    (SELECT id FROM roles WHERE code = 'user')
+FROM users u
+WHERE u.username = 'testuser';
+
+-- 为管理员用户分配超级管理员角色
+INSERT INTO user_roles (user_id, role_id)
+SELECT
+    u.id,
+    (SELECT id FROM roles WHERE code = 'admin')
+FROM users u
+WHERE u.username = 'admin';
+
+-- 添加表注释
+COMMENT ON TABLE roles IS '角色表，存储系统角色信息';
+COMMENT ON TABLE permissions IS '权限表，存储系统权限定义';
+COMMENT ON TABLE user_roles IS '用户-角色关联表，多对多关系';
+COMMENT ON TABLE role_permissions IS '角色-权限关联表，多对多关系';
+
+
 -- 完成数据库初始化
 SELECT '数据库初始化完成' as status;

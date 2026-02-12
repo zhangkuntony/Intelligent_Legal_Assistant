@@ -17,6 +17,8 @@ from .api.auth import router as auth_router
 from .api.chat import router as chat_router
 from .api.document_categories import router as document_categories_router
 from .api.documents import router as documents_router
+from .api.permissions import router as permissions_router
+from .api.roles import router as roles_router
 from .api.users import router as users_router
 from .core.config import settings
 from .core.database import engine, Base
@@ -102,6 +104,8 @@ async def lifespan(app: FastAPI):
     app.include_router(chat_router, prefix="/api/chat", tags=["智能聊天"])
     app.include_router(document_categories_router, prefix="/api/document-categories", tags=["文档分类"])
     app.include_router(documents_router, prefix="/api/documents", tags=["文档"])
+    app.include_router(permissions_router, prefix="/api/permissions", tags=["权限管理"])
+    app.include_router(roles_router, prefix="/api/roles", tags=["角色管理"])
     app.include_router(users_router, prefix="/api/users", tags=["用户"])
 
     print("🚀 智能法律助手后端服务启动完成")

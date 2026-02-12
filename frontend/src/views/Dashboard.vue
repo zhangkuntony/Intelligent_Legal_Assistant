@@ -7,8 +7,8 @@
     
     <div class="dashboard-stats">
       <el-row :gutter="20">
-        <el-col :span="6">
-          <el-card class="stat-card">
+        <el-col :span="8">
+          <el-card class="stat-card" v-loading="loading">
             <div class="stat-content">
               <div class="stat-icon" style="color: #1064b8;">
                 <el-icon><ChatDotRound /></el-icon>
@@ -20,8 +20,8 @@
             </div>
           </el-card>
         </el-col>
-        <el-col :span="6">
-          <el-card class="stat-card">
+        <el-col :span="8">
+          <el-card class="stat-card" v-loading="loading">
             <div class="stat-content">
               <div class="stat-icon" style="color: #67C23A;">
                 <el-icon><Document /></el-icon>
@@ -33,8 +33,8 @@
             </div>
           </el-card>
         </el-col>
-        <el-col :span="6">
-          <el-card class="stat-card">
+        <el-col :span="8">
+          <el-card class="stat-card" v-loading="loading">
             <div class="stat-content">
               <div class="stat-icon" style="color: #E6A23C;">
                 <el-icon><Clock /></el-icon>
@@ -42,19 +42,6 @@
               <div class="stat-info">
                 <div class="stat-value">{{ stats.totalTime }}</div>
                 <div class="stat-label">使用时长(小时)</div>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card class="stat-card">
-            <div class="stat-content">
-              <div class="stat-icon" style="color: #F56C6C;">
-                <el-icon><Star /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ stats.satisfaction }}</div>
-                <div class="stat-label">满意度评分</div>
               </div>
             </div>
           </el-card>
@@ -95,14 +82,15 @@
     </div>
 
     <div class="dashboard-recent">
-      <el-card>
+      <el-card v-loading="loading">
         <template #header>
           <div class="card-header">
             <span>最近对话</span>
             <el-button type="primary" text @click="$router.push('/history')">查看全部</el-button>
           </div>
         </template>
-        <el-table :data="recentConversations" style="width: 100%">
+        <el-empty v-if="recentConversations.length === 0" description="暂无对话记录" />
+        <el-table :data="recentConversations" style="width: 100%" v-else>
           <el-table-column prop="title" label="对话标题" min-width="200" />
           <el-table-column prop="time" label="时间" width="180" />
           <el-table-column label="操作" width="120">
@@ -119,122 +107,141 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+  import { ref, onMounted } from 'vue'
+  import { useRouter } from 'vue-router'
+  import { ElMessage } from 'element-plus'
+  import { chatService } from '@/services/chat'
 
-const router = useRouter()
+  const router = useRouter()
 
-const stats = ref({
-  conversations: 0,
-  documents: 0,
-  totalTime: 0,
-  satisfaction: '4.8'
-})
+  const loading = ref(false)
+  const stats = ref({
+    conversations: 0,
+    documents: 0,
+    totalTime: 0
+  })
 
-const recentConversations = ref([
-  { id: 1, title: '劳动合同纠纷咨询', time: '2024-01-15 14:30' },
-  { id: 2, title: '房屋租赁合同审查', time: '2024-01-14 10:15' },
-  { id: 3, title: '知识产权保护咨询', time: '2024-01-12 16:45' }
-])
+  const recentConversations = ref<Array<{
+    id: string
+    title: string
+    time: string
+  }>>([])
 
-const continueConversation = (conversation: any) => {
-  router.push(`/chat/${conversation.id}`)
-}
+  const continueConversation = (conversation: any) => {
+    router.push(`/chat/${conversation.id}`)
+  }
 
-onMounted(() => {
-  // 模拟加载数据
-  setTimeout(() => {
-    stats.value = {
-      conversations: 12,
-      documents: 8,
-      totalTime: 24,
-      satisfaction: '4.8'
+  const loadDashboardData = async () => {
+    try {
+      loading.value = true
+      
+      const data = await chatService.getDashboardStats()
+      
+      stats.value = {
+        conversations: data.stats.conversations,
+        documents: data.stats.documents,
+        totalTime: data.stats.totalTime
+      }
+      
+      recentConversations.value = data.recent_conversations || []
+      
+    } catch (error) {
+      console.error('加载Dashboard数据失败：', error)
+      ElMessage.error('加载数据失败，请刷新页面重试')
+    } finally {
+      loading.value = false
     }
-  }, 1000)
-})
+  }
+
+  onMounted(() => {
+    loadDashboardData()
+  })
 </script>
 
 <style scoped>
-.dashboard-container {
-  padding: 20px;
-}
+  .dashboard-container {
+    padding: 20px;
+  }
 
-.dashboard-header {
-  margin-bottom: 30px;
-}
+  .dashboard-header {
+    margin-bottom: 30px;
+  }
 
-.dashboard-header h1 {
-  margin: 0;
-  color: #303133;
-}
+  .dashboard-header h1 {
+    margin: 0;
+    color: #303133;
+  }
 
-.dashboard-header p {
-  margin: 10px 0 0 0;
-  color: #606266;
-}
+  .dashboard-header p {
+    margin: 10px 0 0 0;
+    color: #606266;
+  }
 
-.stat-card {
-  margin-bottom: 20px;
-}
+  .stat-card {
+    margin-bottom: 20px;
+    height: 120px;
+  }
 
-.stat-content {
-  display: flex;
-  align-items: center;
-}
+  .stat-content {
+    display: flex;
+    align-items: center;
+    height: 100%;
+  }
 
-.stat-icon {
-  font-size: 48px;
-  margin-right: 20px;
-}
+  .stat-icon {
+    font-size: 48px;
+    margin-right: 20px;
+  }
 
-.stat-value {
-  font-size: 24px;
-  font-weight: bold;
-  color: #303133;
-}
+  .stat-value {
+    font-size: 28px;
+    font-weight: bold;
+    color: #303133;
+  }
 
-.stat-label {
-  color: #909399;
-  margin-top: 5px;
-}
+  .stat-label {
+    color: #909399;
+    margin-top: 5px;
+    font-size: 14px;
+  }
 
-.action-card {
-  cursor: pointer;
-  transition: all 0.3s;
-  height: 200px;
-}
+  .action-card {
+    cursor: pointer;
+    transition: all 0.3s;
+    height: 220px;
+  }
 
-.action-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
-}
+  .action-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
+  }
 
-.action-content {
-  text-align: center;
-  padding: 20px 0;
-}
+  .action-content {
+    text-align: center;
+    padding: 20px 0;
+  }
 
-.action-content h3 {
-  margin: 15px 0 10px 0;
-  color: #303133;
-}
+  .action-content h3 {
+    margin: 15px 0 10px 0;
+    color: #303133;
+  }
 
-.action-content p {
-  color: #909399;
-  margin: 0;
-}
+  .action-content p {
+    color: #909399;
+    margin: 0;
+  }
 
-.dashboard-actions {
-  margin: 30px 0;
-}
+  .dashboard-actions {
+    margin: 30px 0;
+  }
 
-.dashboard-recent {
-  margin-top: 30px;
-}
+  .dashboard-recent {
+    margin-top: 30px;
+  }
 
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
 </style>

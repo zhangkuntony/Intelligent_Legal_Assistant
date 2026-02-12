@@ -30,9 +30,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { API_CONFIG } from '../config/api'
-import request from '../services/api'
-import { formatDateTime } from '../utils/dateTimeUtils'
+import { API_CONFIG } from '@/config/api'
+import request from '@/services/api'
+import { formatDateTime } from '@/utils/dateTimeUtils'
 
 interface Category {
   id: string
@@ -50,7 +50,7 @@ const loadCategories = async () => {
   loading.value = true
   try {
     const response = await request.get(API_CONFIG.ENDPOINTS.DOCUMENT_CATEGORIES.BASE)
-    categoryList.value = response.document_categories || []
+    categoryList.value = response.data?.document_categories || []
   } catch (error) {
     console.error('加载分类列表失败:', error)
     ElMessage.error('加载分类列表失败')

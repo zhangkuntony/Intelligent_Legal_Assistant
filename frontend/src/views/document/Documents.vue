@@ -186,10 +186,10 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox, UploadUserFile } from 'element-plus'
 import { Document, Folder } from '@element-plus/icons-vue'
-import { API_CONFIG } from '../config/api'
-import { useAuthStore } from '../stores/auth'
-import { request } from '../services/api'
-import { formatDateTime } from '../utils/dateTimeUtils'
+import { API_CONFIG } from '@/config/api'
+import { useAuthStore } from '@/stores/auth'
+import { request } from '@/services/api'
+import { formatDateTime } from '@/utils/dateTimeUtils'
 
 // 响应式数据
 const loading = ref(false)
@@ -310,11 +310,6 @@ const formatFileSize = (bytes: number) => {
   return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
-const calculateProgress = (document: any) => {
-  if (!document.total_chunks || document.total_chunks === 0) return 0
-  return Math.round((document.processed_chunks / document.total_chunks) * 100)
-}
-
 const handleSearch = () => {
   currentPage.value = 1
 }
@@ -336,15 +331,10 @@ const handleCurrentChange = (newPage: number) => {
 }
 
 const refreshDocuments = async () => {
-  console.log('当前token:', localStorage.getItem('access_token'))
-  console.log('调用接口:', `${API_CONFIG.ENDPOINTS.DOCUMENTS.BASE}?skip=0&limit=10`)
-
   // 在调用接口前检查token
   const token = localStorage.getItem('access_token')
-  console.log('token:', token)
   if (!token) {
     // 跳转到登录页面
-    console.log('未找到token，跳转到登录页面')
     globalThis.location.href = '/login'
     return
   }
@@ -533,7 +523,7 @@ const submitUpload = () => {
   uploadRef.value.submit()
 }
 
-const handleUploadSuccess = (response: any, file: any) => {
+const handleUploadSuccess = (response: any) => {
   uploading.value = false
   if (response.error) {
     ElMessage.error('文件上传失败: ' + response.message)
@@ -545,7 +535,7 @@ const handleUploadSuccess = (response: any, file: any) => {
   }
 }
 
-const handleUploadError = (error: any, file: any) => {
+const handleUploadError = (error: any) => {
   uploading.value = false
   ElMessage.error('文件上传失败: ' + (error.message || '网络错误'))
 }

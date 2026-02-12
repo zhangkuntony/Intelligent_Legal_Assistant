@@ -128,7 +128,6 @@
 
 <script setup lang="ts">
   import { ref, computed, onMounted } from 'vue'
-  import { useRouter } from 'vue-router'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { chatService} from '@/services/chat'
   import type { ConversationDetail, ConversationWithMessages } from '@/types/chat'
@@ -139,8 +138,6 @@
 
   dayjs.extend(relativeTime)
   dayjs.extend(duration)
-
-  const router = useRouter()
 
   const loading = ref(false)
   const showDetailDialog = ref(false)

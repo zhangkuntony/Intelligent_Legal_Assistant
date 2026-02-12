@@ -37,6 +37,7 @@ python-decouple
 pydantic
 pydantic-settings
 python-dateutil
+jieba
 
 # 开发工具
 pytest

@@ -526,7 +526,82 @@ export const chatService = {
             hour: '2-digit',
             minute: '2-digit',
         })
+    },
+
+
+    /**
+     * 获取会话分析统计数据
+     * 
+     * @returns 会话统计数据
+     * 
+     * @example
+     * ```typescript
+     * const analytics = await chatService.getConversationAnalytics()
+     * ```
+     */
+    async getConversationAnalytics(): Promise<{
+        stats: {
+            total_conversations: number
+            active_users: number
+            avg_duration: number
+        }
+        trend: Array<{ date: string; count: number }>
+        hot_topics: Array<{ topic: string; count: number }>
+        recent_conversations: Array<{
+            id: string
+            user_id: string
+            user_name: string
+            title: string
+            duration: number
+            messages: number
+            time: string
+        }>
+    }> {
+        try {
+            const response = await request.get(
+                `${API_CONFIG.BASE_URL}/api/chat/analytics`
+            )
+            return response
+        } catch (error) {
+            console.error('获取会话分析数据失败：', error)
+            throw new Error('获取会话分析数据失败，请稍后重试')
+        }
+    },
+
+
+    /**
+     * 获取Dashboard统计数据
+     * 
+     * @returns Dashboard统计数据
+     * 
+     * @example
+     * ```typescript
+     * const { stats, recent_conversations } = await chatService.getDashboardStats()
+     * ```
+     */
+    async getDashboardStats(): Promise<{
+        stats: {
+            conversations: number
+            documents: number
+            totalTime: number
+        }
+        recent_conversations: Array<{
+            id: string
+            title: string
+            time: string
+        }>
+    }> {
+        try {
+            const response = await request.get(
+                `${API_CONFIG.BASE_URL}/api/chat/dashboard-stats`
+            )
+            return response
+        } catch (error) {
+            console.error('获取Dashboard统计数据失败：', error)
+            throw new Error('获取Dashboard统计数据失败，请稍后重试')
+        }
     }
 }
+
 
 export default chatService

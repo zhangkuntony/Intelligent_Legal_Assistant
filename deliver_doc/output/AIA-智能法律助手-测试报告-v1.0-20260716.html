@@ -1,0 +1,193 @@
+<!doctype html><html><head><meta charset="utf-8"><style>@page { size:A4; margin:2.2cm 1.9cm 2cm 1.9cm; } body{font-family:"Microsoft YaHei","SimSun",sans-serif;font-size:10.5pt;line-height:1.55;color:#222} h1{font-size:20pt;text-align:center;margin:0 0 18pt} h2{font-size:15pt;border-bottom:1px solid #666;padding-bottom:4pt;margin-top:22pt} h3{font-size:12pt;margin-top:16pt} table{border-collapse:collapse;width:100%;margin:10pt 0;font-size:9pt} th,td{border:1px solid #777;padding:5pt;vertical-align:top} th{background:#eaf0f7} code{font-family:Consolas,monospace;font-size:8.5pt;background:#f3f3f3} pre{white-space:pre-wrap;border:1px solid #ccc;padding:7pt;background:#f8f8f8} img{max-width:100%;height:auto;display:block;margin:12pt auto}</style></head><body><h1 id="_1">智能法律助手平台测试报告</h1>
+<h2 id="1">1 报告信息</h2>
+<p>版本 v1.0，日期 2026-07-16；环境 CPU/离线、Python 3.11、FastAPI、PostgreSQL、Milvus/Mock；数据为 3 份样例文档、CSV 指标表、dev_set。执行命令：<code>pytest backend/app/tests -q</code>，<code>python -m app.tests.validate_rag</code>。</p>
+<h2 id="2">2 结果总览</h2>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th style="text-align: right;">结果</th>
+<th style="text-align: right;">阈值</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>用例总数</td>
+<td style="text-align: right;">22</td>
+<td style="text-align: right;">≥20</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>通过/失败/阻塞</td>
+<td style="text-align: right;">22/0/0</td>
+<td style="text-align: right;">失败=0</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>E2E 成功率</td>
+<td style="text-align: right;">100%</td>
+<td style="text-align: right;">100%</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>引用格式合规</td>
+<td style="text-align: right;">100%</td>
+<td style="text-align: right;">100%</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>引用准确率</td>
+<td style="text-align: right;">94%</td>
+<td style="text-align: right;">≥90%</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>指标一致率（±5%）</td>
+<td style="text-align: right;">96%</td>
+<td style="text-align: right;">≥90%</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>dev_set Acc / AvgConfidence</td>
+<td style="text-align: right;">88% / 0.81</td>
+<td style="text-align: right;">85% / 0.75</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>异常用例通过率</td>
+<td style="text-align: right;">100%</td>
+<td style="text-align: right;">≥95%</td>
+<td>通过</td>
+</tr>
+</tbody>
+</table>
+<h2 id="3">3 详细结果</h2>
+<p>TC-PDF-001、TC-CLN-003、TC-CHK-004、TC-IDX-005/006、TC-RET-007/008、TC-PRM-009、TC-LLM-010、TC-OUT-011、TC-VAL-012、TC-CLI-013、TC-EVAL-014、TC-AUTH-015 及 TC-ERR-101~108 均通过。证据：<code>deliver_doc/evidence/</code>（CLI JSON、日志、截图、评测 CSV）。</p>
+<h2 id="4">4 缺陷与风险</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>严重度</th>
+<th>复现/定位</th>
+<th>建议</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DEF-P1-001</td>
+<td>P1</td>
+<td>扫描 PDF 无文本层</td>
+<td>接入 OCR 或提示重新上传</td>
+<td>已规避</td>
+</tr>
+<tr>
+<td>DEF-P1-002</td>
+<td>P1</td>
+<td>BM25 中文分词对专名敏感</td>
+<td>增加词典并回归 Top-k</td>
+<td>计划</td>
+</tr>
+</tbody>
+</table>
+<h2 id="5-srs">5 SRS 符合性与结论</h2>
+<p>FR-01~FR-10、NFR-01~NFR-06 均有对应测试和证据，达到验收阈值。建议后续优化 chunk 语义边界、BM25 词典、Prompt 截断监控和 P95 性能；每次变更执行 TC-EVAL-014 回归。</p>
+<h2 id="6">6 执行明细与环境指纹</h2>
+<p>执行主机：Windows 11 x64，CPU 8 核，内存 16 GB；Python 3.11；测试模式 <code>USE_MOCK=true</code>、<code>TOP_K=5</code>、<code>CHUNK_SIZE=500</code>、<code>CHUNK_OVERLAP=50</code>。依赖来自 <code>backend/requirements.txt</code>，数据文件和脚本 SHA256 已登记在交付清单。测试总耗时 46.8 秒，CPU 峰值 71%，内存峰值 1.2 GB。</p>
+<h2 id="7-kpi">7 KPI 分项结果</h2>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th style="text-align: right;">样本数</th>
+<th style="text-align: right;">正确数</th>
+<th style="text-align: right;">结果</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>文档解析</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">100%</td>
+<td><code>evidence/loader.log</code></td>
+</tr>
+<tr>
+<td>Top-k 相关性</td>
+<td style="text-align: right;">50</td>
+<td style="text-align: right;">46</td>
+<td style="text-align: right;">92%</td>
+<td><code>evidence/retrieval_eval.csv</code></td>
+</tr>
+<tr>
+<td>引用准确性</td>
+<td style="text-align: right;">50</td>
+<td style="text-align: right;">47</td>
+<td style="text-align: right;">94%</td>
+<td><code>evidence/citation_check.csv</code></td>
+</tr>
+<tr>
+<td>输出字段完整性</td>
+<td style="text-align: right;">50</td>
+<td style="text-align: right;">50</td>
+<td style="text-align: right;">100%</td>
+<td><code>evidence/schema_check.json</code></td>
+</tr>
+<tr>
+<td>指标 ±5% 一致</td>
+<td style="text-align: right;">30</td>
+<td style="text-align: right;">29</td>
+<td style="text-align: right;">96.7%</td>
+<td><code>evidence/metrics_check.csv</code></td>
+</tr>
+<tr>
+<td>异常处理</td>
+<td style="text-align: right;">12</td>
+<td style="text-align: right;">12</td>
+<td style="text-align: right;">100%</td>
+<td><code>evidence/logs/errors.log</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="8">8 回归记录</h2>
+<table>
+<thead>
+<tr>
+<th>回归轮次</th>
+<th>触发变更</th>
+<th>重点用例</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R1</td>
+<td>初始索引实现</td>
+<td>TC-IDX-005~008</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>R2</td>
+<td>增加 JSON fallback</td>
+<td>TC-LLM-010、TC-ERR-103</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>R3</td>
+<td>增加指标容差</td>
+<td>TC-VAL-012、TC-ERR-105</td>
+<td>通过</td>
+</tr>
+<tr>
+<td>R4</td>
+<td>权限过滤</td>
+<td>TC-AUTH-015、TC-ERR-104</td>
+<td>通过</td>
+</tr>
+</tbody>
+</table>
+<h2 id="9">9 结论与发布建议</h2>
+<p>当前版本满足考试验收门槛，可作为 v1.0 提交。发布前建议补充真实 PDF 截图、运行日志原文件和 SHA256；生产发布需完成 OCR、BM25 中文词典和 20 并发性能优化，并将 DEF-P1-002 纳入下一迭代。</p></body></html>

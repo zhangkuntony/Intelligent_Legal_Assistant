@@ -1,0 +1,283 @@
+<!doctype html><html><head><meta charset="utf-8"><style>@page { size:A4; margin:2.2cm 1.9cm 2cm 1.9cm; } body{font-family:"Microsoft YaHei","SimSun",sans-serif;font-size:10.5pt;line-height:1.55;color:#222} h1{font-size:20pt;text-align:center;margin:0 0 18pt} h2{font-size:15pt;border-bottom:1px solid #666;padding-bottom:4pt;margin-top:22pt} h3{font-size:12pt;margin-top:16pt} table{border-collapse:collapse;width:100%;margin:10pt 0;font-size:9pt} th,td{border:1px solid #777;padding:5pt;vertical-align:top} th{background:#eaf0f7} code{font-family:Consolas,monospace;font-size:8.5pt;background:#f3f3f3} pre{white-space:pre-wrap;border:1px solid #ccc;padding:7pt;background:#f8f8f8} img{max-width:100%;height:auto;display:block;margin:12pt auto}</style></head><body><h1 id="_1">智能法律助手平台测试方案（含用例）</h1>
+<h2 id="1">1 目标、范围与环境</h2>
+<p>目标：验证 SRS FR-01~FR-10、NFR-01~NFR-06，覆盖单元、组件、集成、E2E 和回归。环境：Windows/Linux、Python 3.9+、CPU、离线；后端 FastAPI，数据库 PostgreSQL，向量 Milvus 或 Mock，样例 PDF 3 份、<code>key_metrics.csv</code>、<code>dev_set.jsonl</code>。初始化：复制 <code>.env.example</code>，设置 <code>USE_MOCK=true</code>、<code>TOP_K=5</code>，安装 <code>backend/requirements.txt</code>，运行 <code>pytest backend/app/tests</code>。</p>
+<h2 id="2">2 策略与通过准则</h2>
+<p>单元覆盖 Loader/Cleaner/Chunker/Validator；组件覆盖索引、检索、Prompt；集成覆盖 RAG 链；E2E 覆盖登录→上传→问答→引用。正向、反向、边界和回归均纳入。通过标准：E2E=100%，字段完整率=100%，引用准确率≥90%，指标一致率≥90%（±5%），dev_set Acc≥85%、AvgConfidence≥0.75，异常通过率≥95%。</p>
+<h2 id="3">3 用例</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>关联</th>
+<th>场景/步骤</th>
+<th>预期</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TC-PDF-001</td>
+<td>FR-01</td>
+<td>加载 3 个 PDF，检查 page/source</td>
+<td>Document 字段完整</td>
+</tr>
+<tr>
+<td>TC-DOC-002</td>
+<td>FR-01</td>
+<td>上传 DOCX/TXT</td>
+<td>状态 completed，生成 chunks</td>
+</tr>
+<tr>
+<td>TC-CLN-003</td>
+<td>FR-02</td>
+<td>输入页眉、断词、异常空格</td>
+<td>清洗规则生效</td>
+</tr>
+<tr>
+<td>TC-CHK-004</td>
+<td>FR-03</td>
+<td>chunk_size=500、overlap=50</td>
+<td>块含 section/chunk_id</td>
+</tr>
+<tr>
+<td>TC-IDX-005</td>
+<td>FR-04</td>
+<td>删除索引后 build</td>
+<td>文件生成且可查询</td>
+</tr>
+<tr>
+<td>TC-IDX-006</td>
+<td>FR-04</td>
+<td>重启后 load_local</td>
+<td>日志显示复用</td>
+</tr>
+<tr>
+<td>TC-RET-007</td>
+<td>FR-05</td>
+<td>query，Top-k=5</td>
+<td>返回≤5条证据</td>
+</tr>
+<tr>
+<td>TC-RET-008</td>
+<td>FR-05</td>
+<td>开关 BM25，对比去重</td>
+<td>无重复，召回不下降</td>
+</tr>
+<tr>
+<td>TC-PRM-009</td>
+<td>FR-06</td>
+<td>构造含 5 条 context 的 prompt</td>
+<td>仅使用 CONTEXT，引用格式正确</td>
+</tr>
+<tr>
+<td>TC-LLM-010</td>
+<td>FR-07</td>
+<td>Mock 返回 JSON/坏 JSON</td>
+<td>正常解析或 fallback</td>
+</tr>
+<tr>
+<td>TC-OUT-011</td>
+<td>FR-09</td>
+<td>执行问答</td>
+<td>字段齐全、citations 非空</td>
+</tr>
+<tr>
+<td>TC-VAL-012</td>
+<td>FR-08</td>
+<td>CSV 偏差 3%/8%</td>
+<td>前者通过，后者降 confidence 并 notes</td>
+</tr>
+<tr>
+<td>TC-CLI-013</td>
+<td>FR-10</td>
+<td>调用 API/CLI</td>
+<td>2xx JSON，错误码规范</td>
+</tr>
+<tr>
+<td>TC-EVAL-014</td>
+<td>NFR-04</td>
+<td>批量执行 dev_set</td>
+<td>输出 Total/Correct/Acc/AvgConf</td>
+</tr>
+<tr>
+<td>TC-AUTH-015</td>
+<td>NFR-06</td>
+<td>无 token/越权访问</td>
+<td>401/403，数据隔离</td>
+</tr>
+<tr>
+<td>TC-ERR-101</td>
+<td>NFR-02</td>
+<td>删除 CSV 必填列</td>
+<td>422，列名清晰</td>
+</tr>
+<tr>
+<td>TC-ERR-102</td>
+<td>NFR-02</td>
+<td>无关问题空检索</td>
+<td>不崩溃，引用为空并提示</td>
+</tr>
+<tr>
+<td>TC-ERR-103</td>
+<td>NFR-02</td>
+<td>LLM 半截 JSON</td>
+<td>fallback JSON，notes 保留</td>
+</tr>
+<tr>
+<td>TC-ERR-104</td>
+<td>NFR-02</td>
+<td>删除引用</td>
+<td>不得返回无引用成功</td>
+</tr>
+<tr>
+<td>TC-ERR-105</td>
+<td>FR-08</td>
+<td>偏差&gt;5%</td>
+<td>mismatch notes、confidence下降</td>
+</tr>
+<tr>
+<td>TC-ERR-106</td>
+<td>FR-04</td>
+<td>破坏索引文件</td>
+<td>自动重建或明确报错</td>
+</tr>
+<tr>
+<td>TC-ERR-107</td>
+<td>FR-05</td>
+<td>不存在公司/年份</td>
+<td>返回未找到来源</td>
+</tr>
+<tr>
+<td>TC-ERR-108</td>
+<td>NFR-04</td>
+<td>超长上下文</td>
+<td>裁剪后仍为合法 JSON</td>
+</tr>
+</tbody>
+</table>
+<h2 id="4">4 数据与证据</h2>
+<p>每条用例保存 <code>evidence/&lt;case_id&gt;.json</code>、<code>evidence/logs/&lt;case_id&gt;.log</code>；截图位于 <code>evidence/screenshots/</code>。格式校验脚本检查 <code>answer,citations,used_metrics,confidence</code> 和引用正则；评测脚本批量读取 <code>dev_set.jsonl</code> 输出 <code>evidence/eval_summary.csv</code>。</p>
+<h2 id="6">6 测试数据设计</h2>
+<table>
+<thead>
+<tr>
+<th>数据集</th>
+<th style="text-align: right;">数量</th>
+<th>构成</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PDF 基线</td>
+<td style="text-align: right;">3</td>
+<td>可复制文本、表格、分页脚注</td>
+<td>解析/引用</td>
+</tr>
+<tr>
+<td>DOC/DOCX/TXT</td>
+<td style="text-align: right;">各 2</td>
+<td>中文条款、英文条款、空段落</td>
+<td>格式兼容</td>
+</tr>
+<tr>
+<td>CSV 指标</td>
+<td style="text-align: right;">30 行</td>
+<td>5 公司×6 年，含缺失和异常值</td>
+<td>指标校验</td>
+</tr>
+<tr>
+<td>dev_set</td>
+<td style="text-align: right;">50 条</td>
+<td>事实、比较、无关、拒答问题</td>
+<td>批量评测</td>
+</tr>
+<tr>
+<td>异常集</td>
+<td style="text-align: right;">12 条</td>
+<td>坏文件、坏索引、缺列、超长输入</td>
+<td>鲁棒性</td>
+</tr>
+</tbody>
+</table>
+<p>数据生成规则：所有金额统一亿元、比率统一百分比、EPS 统一元/股；年份为 4 位整数；敏感数据使用脱敏公司名。每次执行记录文件大小、行数、SHA256，避免测试数据漂移。</p>
+<h2 id="7">7 覆盖率矩阵</h2>
+<table>
+<thead>
+<tr>
+<th>能力</th>
+<th>单元</th>
+<th>组件</th>
+<th>集成</th>
+<th>E2E</th>
+<th>用例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Loader</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>001/002</td>
+</tr>
+<tr>
+<td>Cleaner/Chunker</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>003/004</td>
+</tr>
+<tr>
+<td>Indexer/Retriever</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>005~008</td>
+</tr>
+<tr>
+<td>Prompt/LLM/Parser</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>009/010/011</td>
+</tr>
+<tr>
+<td>Validator</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>012</td>
+</tr>
+<tr>
+<td>API/Auth</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>013/015</td>
+</tr>
+<tr>
+<td>NFR 异常</td>
+<td>-</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>101~108</td>
+</tr>
+</tbody>
+</table>
+<h2 id="8">8 自动化执行与退出码</h2>
+<pre><code class="language-bash">python -m pytest backend/app/tests -q --junitxml=evidence/junit.xml
+python -m app.tests.validate_rag --dataset data/eval/dev_set.jsonl --output evidence/eval_summary.csv
+python scripts/check_output_schema.py evidence/cli/*.json
+</code></pre>
+<p>脚本退出码：0=全部通过；1=功能失败；2=环境或数据缺失；3=指标低于阈值。CI 必须上传 JUnit、日志、JSON、CSV 四类制品。</p>
+<h2 id="9">9 性能与安全测试</h2>
+<p>性能测试使用 1/5/20 并发、100 次问答，记录平均/P50/P95/P99 延迟、CPU 峰值和内存峰值；P95 超过 10 秒判失败。安全测试包含未认证访问、越权文档、路径穿越、超大文件、恶意扩展名、Prompt 注入；任何越权成功均为 P0。</p>
+<h2 id="5">5 风险与回归</h2>
+<p>PDF 扫描件、Milvus 不可用、模型输出漂移、上下文截断为 P0/P1 风险；修复后至少执行关联用例和全量 TC-EVAL-014。每次版本记录缺陷 ID、复现命令、日志片段、回归轮次。</p></body></html>

@@ -1,0 +1,235 @@
+<!doctype html><html><head><meta charset="utf-8"><style>@page { size:A4; margin:2.2cm 1.9cm 2cm 1.9cm; } body{font-family:"Microsoft YaHei","SimSun",sans-serif;font-size:10.5pt;line-height:1.55;color:#222} h1{font-size:20pt;text-align:center;margin:0 0 18pt} h2{font-size:15pt;border-bottom:1px solid #666;padding-bottom:4pt;margin-top:22pt} h3{font-size:12pt;margin-top:16pt} table{border-collapse:collapse;width:100%;margin:10pt 0;font-size:9pt} th,td{border:1px solid #777;padding:5pt;vertical-align:top} th{background:#eaf0f7} code{font-family:Consolas,monospace;font-size:8.5pt;background:#f3f3f3} pre{white-space:pre-wrap;border:1px solid #ccc;padding:7pt;background:#f8f8f8} img{max-width:100%;height:auto;display:block;margin:12pt auto}</style></head><body><h1 id="hld">智能法律助手概要设计说明书（HLD）</h1>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>版本</td>
+<td>v1.0 / 2026-07-16</td>
+</tr>
+<tr>
+<td>依据</td>
+<td>SRS v1.0，代码路径 <code>backend/app</code>、<code>frontend/src</code></td>
+</tr>
+<tr>
+<td>约束</td>
+<td>CPU/离线、JWT/RBAC、模型可 Mock</td>
+</tr>
+</tbody>
+</table>
+<h2 id="1">1 架构概览</h2>
+<p><img alt="可视化架构图" src="images/hld_architecture.png" /></p>
+<p>模块边界：API 只负责鉴权、参数和响应；业务服务编排；文档处理保持纯函数；向量层封装 Milvus 并提供 Mock；Guardrail 是最终一致性闸门；Logger 统一写 <code>logs/</code>。</p>
+<h2 id="2">2 模块设计与接口</h2>
+<table>
+<thead>
+<tr>
+<th>模块</th>
+<th>关键接口</th>
+<th>输入/输出</th>
+<th>配置</th>
+<th>异常与降级</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Loader</td>
+<td><code>load(path)-&gt;list[Document]</code></td>
+<td>文件→页文档</td>
+<td><code>MAX_FILE_SIZE</code></td>
+<td>不支持类型/损坏文件→422</td>
+</tr>
+<tr>
+<td>Cleaner</td>
+<td><code>clean(doc)-&gt;Document</code></td>
+<td>原文→标准文本</td>
+<td><code>CLEAN_RULES</code></td>
+<td>编码异常→保留原文并告警</td>
+</tr>
+<tr>
+<td>Chunker</td>
+<td><code>split(text,500,50)-&gt;Chunk[]</code></td>
+<td>文本→块</td>
+<td><code>CHUNK_SIZE</code>,<code>OVERLAP</code></td>
+<td>超长→分段；空文本→空集</td>
+</tr>
+<tr>
+<td>Indexer</td>
+<td><code>build/load()-&gt;Index</code></td>
+<td>块→索引</td>
+<td><code>MILVUS_URI</code>,<code>INDEX_PATH</code></td>
+<td>服务不可用→Mock/重建</td>
+</tr>
+<tr>
+<td>Retriever</td>
+<td><code>search(q,k=5,bm25=False)</code></td>
+<td>查询→证据</td>
+<td><code>TOP_K</code>,<code>USE_BM25</code></td>
+<td>空结果→友好提示</td>
+</tr>
+<tr>
+<td>Promptor</td>
+<td><code>build(query,docs)-&gt;str</code></td>
+<td>查询+证据→Prompt</td>
+<td><code>MAX_CONTEXT_CHARS</code></td>
+<td>超长→按分数裁剪</td>
+</tr>
+<tr>
+<td>LLM</td>
+<td><code>invoke(prompt)-&gt;str</code></td>
+<td>Prompt→原始结果</td>
+<td><code>USE_MOCK</code>,<code>TIMEOUT</code></td>
+<td>超时/失败→Mock/fallback</td>
+</tr>
+<tr>
+<td>Synthesizer</td>
+<td><code>parse(raw,docs)-&gt;Payload</code></td>
+<td>原始→JSON</td>
+<td>固定字段</td>
+<td>JSON 失败→文本+引用兜底</td>
+</tr>
+<tr>
+<td>Guardrail</td>
+<td><code>validate(payload,csv)-&gt;Payload</code></td>
+<td>JSON+指标→校验结果</td>
+<td><code>TOLERANCE=0.05</code></td>
+<td>不一致→notes、降 confidence</td>
+</tr>
+<tr>
+<td>API/Service</td>
+<td><code>/api/chat/send</code> 等</td>
+<td>HTTP→JSON</td>
+<td><code>.env</code></td>
+<td>统一错误码</td>
+</tr>
+</tbody>
+</table>
+<h2 id="3">3 数据与持久化</h2>
+<p>Document 元数据：<code>id,title,filename,file_path,file_type,status,total_chunks,created_at</code>；Chunk：<code>document_id,chunk_index,content,embedding,metadata(page,section,source)</code>。PostgreSQL 保存用户/会话/文档，MinIO 保存原文件，Milvus 保存向量；索引目录记录版本和 schema，启动时优先 <code>load_local</code>，校验失败自动重建。</p>
+<h2 id="4">4 关键时序</h2>
+<p><img alt="可视化架构图" src="images/hld_sequence.png" /></p>
+<h2 id="5">5 设计决策与权衡</h2>
+<p>Milvus 适合生产持久化，Mock 索引保障离线考试复现；Top-k=5 控制上下文成本，BM25 作为可选开关提升专名召回；块大小 500/50 在法律条款完整性和检索粒度间折中；LLM 输出必须经过 Parser 和 Guardrail，避免幻觉和指标误报。</p>
+<h2 id="6">6 配置、日志、安全</h2>
+<p><code>.env</code> 默认：<code>DATABASE_URL</code>、<code>MILVUS_HOST/PORT</code>、<code>TOP_K=5</code>、<code>CHUNK_SIZE=500</code>、<code>CHUNK_OVERLAP=50</code>、<code>USE_BM25=false</code>、<code>USE_MOCK=true</code>、<code>LOG_LEVEL=INFO</code>。日志记录加载量、chunk 数、索引复用/重建、检索条数、Prompt 长度、解析回退、指标结果。JWT + RBAC 保护会话和文档，上传白名单和大小限制，用户只能访问自己的资源。</p>
+<h2 id="7">7 追踪与异常清单</h2>
+<table>
+<thead>
+<tr>
+<th>能力</th>
+<th>FR</th>
+<th>模块</th>
+<th>用例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>文档解析/清洗/切块</td>
+<td>FR-01~03</td>
+<td>Processor</td>
+<td>TC-PDF-001/TC-CLN-003/TC-CHK-004</td>
+</tr>
+<tr>
+<td>索引/检索</td>
+<td>FR-04~05</td>
+<td>Indexer/Retriever</td>
+<td>TC-IDX-005/TC-RET-007</td>
+</tr>
+<tr>
+<td>Prompt/LLM/输出</td>
+<td>FR-06/07/09</td>
+<td>Promptor/LLM/Synthesizer</td>
+<td>TC-PRM-009/TC-LLM-010/TC-OUT-011</td>
+</tr>
+<tr>
+<td>指标校验</td>
+<td>FR-08</td>
+<td>Guardrail</td>
+<td>TC-VAL-012</td>
+</tr>
+<tr>
+<td>认证与 API</td>
+<td>FR-10/NFR-06</td>
+<td>API/Auth</td>
+<td>TC-CLI-013/TC-AUTH-015</td>
+</tr>
+</tbody>
+</table>
+<p>异常：空目录→400；CSV 缺列→422 并列出列名；索引损坏→重建；检索为空→无证据答复；LLM 非 JSON→fallback；引用缺失→拒绝标记成功；超长上下文→裁剪并写日志。</p>
+<h2 id="8">8 部署拓扑与容量设计</h2>
+<p><img alt="可视化架构图" src="images/hld_deployment.png" /></p>
+<p>考试单机模式使用一个 FastAPI 进程、PostgreSQL、Mock 索引；生产模式将 API、Worker、Milvus、MinIO 分离。容量基线：1 万份文档、每份平均 40 页、每页 2 个 chunk，约 80 万 chunk；索引元数据按 1 KB/chunk 估算 800 MB，原文按 2 MB/文档估算 20 GB。通过分页、异步处理和批量插入避免单次内存峰值。</p>
+<h2 id="9">9 并发、事务与一致性</h2>
+<p>上传采用数据库事务：先写 metadata，再写对象存储，最后提交 processing 任务；任一步骤失败执行补偿删除。索引构建使用临时目录 <code>index.tmp</code>，校验通过后原子替换 <code>index.faiss</code>/Milvus collection。问答读取已提交版本，重建期间继续使用旧索引。后台任务按 <code>document_id</code> 加锁，避免同一文档重复处理。</p>
+<h2 id="10">10 关键伪代码</h2>
+<pre><code class="language-python">def run_qa(query, user):
+    docs = retriever.search(query, k=settings.top_k, user_id=user.id)
+    prompt = promptor.build(query, docs, max_chars=settings.max_context_chars)
+    raw = llm.invoke(prompt, timeout=settings.llm_timeout)
+    payload = synthesizer.parse(raw, docs)
+    return guardrail.validate(payload, metrics_loader.for_user(user))
+</code></pre>
+<pre><code class="language-python">def build_or_load(chunks):
+    if index_store.is_valid():
+        logger.info(&quot;index_reuse&quot;, extra={&quot;count&quot;: index_store.size()})
+        return index_store.load()
+    index = index_store.build(chunks)
+    index_store.persist_atomically(index)
+    return index
+</code></pre>
+<h2 id="11-api">11 API 错误码与重试策略</h2>
+<table>
+<thead>
+<tr>
+<th>错误码</th>
+<th>含义</th>
+<th>客户端处理</th>
+<th>服务端日志</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AUTH_401</code></td>
+<td>token 缺失/过期</td>
+<td>重新登录</td>
+<td>INFO</td>
+</tr>
+<tr>
+<td><code>PERM_403</code></td>
+<td>无资源权限</td>
+<td>提示无权访问</td>
+<td>WARN</td>
+</tr>
+<tr>
+<td><code>DOC_422</code></td>
+<td>文件类型/字段错误</td>
+<td>修改后重试</td>
+<td>INFO</td>
+</tr>
+<tr>
+<td><code>INDEX_503</code></td>
+<td>向量服务不可用</td>
+<td>指数退避 3 次</td>
+<td>ERROR</td>
+</tr>
+<tr>
+<td><code>LLM_504</code></td>
+<td>模型超时</td>
+<td>使用 Mock/fallback</td>
+<td>ERROR</td>
+</tr>
+<tr>
+<td><code>QA_500</code></td>
+<td>未知异常</td>
+<td>展示 trace_id</td>
+<td>EXCEPTION</td>
+</tr>
+</tbody>
+</table>
+<p>对 <code>INDEX_503</code>、<code>LLM_504</code> 采用 1s/2s/4s 退避；上传和删除不自动重试，避免重复副作用。</p>
+<h2 id="12">12 安全设计细节</h2>
+<p>密码使用 Argon2/bcrypt 哈希；JWT 有效期 30 分钟并支持刷新；所有查询强制注入 <code>owner_id</code> 或 ACL 条件；文件名采用 UUID 重命名防止路径穿越；HTML/Markdown 输出进行转义；管理接口增加速率限制和审计记录。</p></body></html>
